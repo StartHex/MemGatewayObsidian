@@ -54,16 +54,20 @@ class MemoryOSClient:
         importance: float = 50.0,
         context: str | None = None,
         source: str | None = None,
+        output: str | None = None,
     ) -> dict:
-        """录入新记忆。"""
-        return await self._post("/api/v1/memories", {
+        """录入新记忆。提供 output 可让系统自动提炼结论和步骤。"""
+        body = {
             "content": content,
             "type": type,
             "tags": tags or [],
             "importance": importance,
             "context": context,
             "source": source,
-        })
+        }
+        if output is not None:
+            body["output"] = output
+        return await self._post("/api/v1/memories", body)
 
     async def get_memory(self, memory_id: str) -> dict:
         """获取指定记忆。"""
@@ -158,14 +162,18 @@ class SyncMemoryOSClient:
         return resp.json()
 
     def create_memory(self, content: str, **kwargs) -> dict:
-        return self._post("/api/v1/memories", {
+        body = {
             "content": content,
             "type": kwargs.get("type", "raw_input"),
             "tags": kwargs.get("tags", []),
             "importance": kwargs.get("importance", 50.0),
             "context": kwargs.get("context"),
             "source": kwargs.get("source"),
-        })
+        }
+        output = kwargs.get("output")
+        if output is not None:
+            body["output"] = output
+        return self._post("/api/v1/memories", body)
 
     def get_memory(self, memory_id: str) -> dict:
         return self._get(f"/api/v1/memories/{memory_id}")

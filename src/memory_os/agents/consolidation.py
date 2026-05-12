@@ -68,7 +68,12 @@ class ConsolidationAgent:
         stats = ConsolidationStats()
         await self.memory.update_status(raw_node.id, MemoryStatus.PROCESSING)
 
-        summary = await self._summarize(raw_node.content)
+        has_output = bool(raw_node.raw_output)
+
+        if has_output:
+            summary = await self._summarize_pair(raw_node.content, raw_node.raw_output)
+        else:
+            summary = await self._summarize(raw_node.content)
         stats.summaries_generated += 1
 
         title = self._extract_title(summary)
@@ -110,6 +115,11 @@ class ConsolidationAgent:
         except Exception as e:
             logger.warning("embedding_failed", error=str(e))
 
+        if has_output:
+            pro_node = await self._maybe_create_procedural(raw_node.content, raw_node.raw_output, sem_node)
+            if pro_node:
+                stats.embeddings_generated += 1
+
         sem_node.strength_initial = self._calc_initial_strength(raw_node)
         sem_node.next_review = datetime.now(timezone.utc) + timedelta(days=1)
         await self.memory.update(sem_node.id, **sem_node.model_dump(exclude={"id", "type"}))
@@ -129,6 +139,82 @@ class ConsolidationAgent:
             agent_name="consolidation",
         )
         return resp.content
+
+    async def _summarize_pair(self, input_text: str, output_text: str) -> str:
+        resp = await self.llm.chat(
+            UnifiedChatRequest(
+                system="你是知识提炼助手。基于以下问答对，提取核心知识点和结论。忽略提问的细节，聚焦可复用的知识。输出纯文本，不要 JSON。",
+                messages=[{"role": "user", "content": f"问题：{input_text[:2000]}\n\n回答：{output_text[:3000]}\n\n请提炼核心结论（不超过 500 字）"}],
+                temperature=0.2,
+                max_tokens=1024,
+            ),
+            agent_name="consolidation",
+        )
+        return resp.content
+
+    async def _maybe_create_procedural(
+        self, input_text: str, output_text: str, sem_node: MemoryNode,
+    ) -> MemoryNode | None:
+        try:
+            resp = await self.llm.chat(
+                UnifiedChatRequest(
+                    system="判断以下内容是否包含可重复使用的步骤、流程或操作方法。仅返回 JSON。",
+                    messages=[{"role": "user", "content": f"问题：{input_text[:2000]}\n回答：{output_text[:3000]}\n\n是否包含步骤流程？{'{'} \"steps\": true/false, \"title\": \"简短标题\", \"content\": \"提炼的操作步骤或流程\" {'}'}"}],
+                    temperature=0.1,
+                    max_tokens=1024,
+                    response_format="json_object",
+                ),
+                agent_name="consolidation",
+            )
+            import json
+            data = json.loads(resp.content)
+            if not data.get("steps"):
+                return None
+
+            pro_title = data.get("title", sem_node.title or "")
+            pro_content = data.get("content", "")
+
+            pro_node = await self.memory.create(
+                content=pro_content,
+                type_=MemoryType.PROCEDURAL,
+                tags=sem_node.tags + ["procedure"],
+                importance=sem_node.importance,
+                context=sem_node.context,
+                title=pro_title,
+            )
+            pro_node.raw_input_ref = sem_node.raw_input_ref
+            pro_node.links_to = [f"[[{self._semantic_path(sem_node).relative_to(self.vault_path)}]]"]
+
+            try:
+                embedding = (await self.llm.embed([pro_content]))[0]
+                pro_node.embedding_id = f"emb-pro-{pro_node.id}"
+                pro_node.vector_status = MemoryStatus.ACTIVE
+                pro_node.vector_model = self.config.llm.embedding.model
+                pro_node.vector_dim = self.config.llm.embedding.dimension
+
+                await self._vector_store().upsert("procedural", [{
+                    "memory_id": pro_node.id,
+                    "vector": embedding,
+                    "strength": float(pro_node.strength),
+                    "importance": float(pro_node.importance),
+                    "status": "active",
+                    "tags": pro_node.tags,
+                    "file_path": str(self._procedural_path(pro_node).relative_to(self.vault_path)),
+                    "last_retrieved": datetime.now(timezone.utc).isoformat(),
+                    "next_review": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+                }])
+            except Exception as e:
+                logger.warning("procedural_embedding_failed", error=str(e))
+
+            pro_node.strength_initial = self._calc_initial_strength_procedural()
+            pro_node.next_review = datetime.now(timezone.utc) + timedelta(days=1)
+            await self.memory.update(pro_node.id, **pro_node.model_dump(exclude={"id", "type"}))
+
+            logger.info("procedural_created", id=pro_node.id, title=pro_title)
+            return pro_node
+        except Exception as e:
+            logger.warning("procedural_creation_failed", error=str(e))
+            return None
 
     async def _discover_links(self, summary: str) -> list[str]:
         try:
@@ -155,17 +241,36 @@ class ConsolidationAgent:
         filename = f"{node.id}-{slug}.md" if slug else f"{node.id}.md"
         return self.vault_path / "_memory" / "semantic" / filename
 
+    def _procedural_path(self, node: MemoryNode) -> Path:
+        slug = slugify(node.title) if node.title else ""
+        filename = f"{node.id}-{slug}.md" if slug else f"{node.id}.md"
+        return self.vault_path / "_memory" / "procedural" / filename
+
     def _calc_initial_strength(self, raw: MemoryNode) -> float:
         return raw.importance * 0.3 + raw.source_confidence * 20 + 25
+
+    @staticmethod
+    def _calc_initial_strength_procedural() -> float:
+        return 40.0
 
     async def _append_episodic_log(self, raw_node: MemoryNode, sem_node: MemoryNode):
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         epi_path = self.vault_path / "_memory" / "episodic" / f"{today}.md"
         sem_filename = self._semantic_path(sem_node).stem
-        entry = f"- [{datetime.now(timezone.utc).strftime('%H:%M')}] **{raw_node.tags[0] if raw_node.tags else 'memory'}** — [[{sem_filename}]] (from {raw_node.source or 'unknown'})\n"
+        tag = raw_node.tags[0] if raw_node.tags else "memory"
+        has_output = bool(raw_node.raw_output)
+
+        entry_parts = [f"- [{datetime.now(timezone.utc).strftime('%H:%M')}] **{tag}** — [[{sem_filename}]] (from {raw_node.source or 'unknown'})"]
+        if has_output:
+            q_preview = raw_node.content[:60].replace("\n", " ")
+            a_preview = raw_node.raw_output[:60].replace("\n", " ") if raw_node.raw_output else ""
+            entry_parts.append(f"  - Q: {q_preview}...")
+            entry_parts.append(f"  - A: {a_preview}...")
+        entry_parts.append("")
+
         try:
             existing = epi_path.read_text(encoding="utf-8") if epi_path.exists() else f"# {today}\n\n"
-            epi_path.write_text(existing + entry, encoding="utf-8")
+            epi_path.write_text(existing + "\n".join(entry_parts), encoding="utf-8")
         except Exception:
             pass
 

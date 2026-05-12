@@ -60,7 +60,7 @@ async def cmd_ingest(args):
     llm = LLMService(config)
     gateway = SensoryGateway(memory, llm, vault)
 
-    node = await gateway.ingest(args.text, "cli")
+    node = await gateway.ingest(args.text, "cli", output=args.output)
     if node:
         print(f"Ingested: {node.id}")
 
@@ -91,6 +91,7 @@ def main():
 
     p_ingest = sub.add_parser("ingest", help="记录内容")
     p_ingest.add_argument("text")
+    p_ingest.add_argument("--output", "-o", help="对应的结论或回答，提供后可自动提炼知识点和步骤")
     p_ingest.add_argument("--vault", default=str(Path.home() / "memory-vault"))
 
     p_search = sub.add_parser("search", help="检索记忆")

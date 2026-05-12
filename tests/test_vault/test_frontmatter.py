@@ -51,3 +51,30 @@ async def test_update_fields(test_vault_path):
     assert updated.tags == ["b", "c"]
     assert updated.importance == 90.0
     assert updated.content == "old"  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_raw_output_roundtrip(test_vault_path):
+    """Test 8: raw_output 写入和读取 frontmatter"""
+    from memory_os.vault.frontmatter import update_fields
+
+    node = MemoryNode(
+        id="mem-raw-output-test",
+        type=MemoryType.RAW_INPUT,
+        content="test question",
+        raw_output="test answer",
+        tags=["qa"],
+    )
+    fp = test_vault_path / "_inbox" / "mem-raw-output-test.md"
+    await write_memory(fp, node)
+
+    parsed = await parse_memory(fp)
+    assert parsed.raw_output == "test answer"
+    assert parsed.content == "test question"
+
+    # Update and verify
+    updated = await update_fields(fp, raw_output="updated answer")
+    assert updated.raw_output == "updated answer"
+
+    re_parsed = await parse_memory(fp)
+    assert re_parsed.raw_output == "updated answer"

@@ -57,6 +57,7 @@ class MemoryService:
         context: str | None = None,
         source: str | None = None,
         title: str | None = None,
+        raw_output: str | None = None,
     ) -> MemoryNode:
         node = MemoryNode(
             id=generate_memory_id(type_),
@@ -68,6 +69,7 @@ class MemoryService:
             source=source,
             content=content,
             title=title,
+            raw_output=raw_output,
             strength=float(self.config.memory.initial_strength),
             strength_initial=float(self.config.memory.initial_strength),
             decay_rate=self.config.memory.decay_rate_default,

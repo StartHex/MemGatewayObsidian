@@ -49,13 +49,17 @@ def _build_tools() -> list[dict]:
         },
         {
             "name": "capture_memory",
-            "description": "将重要信息存入记忆库。适合保存用户偏好、决策、项目上下文、学到的知识等，供后续对话检索。",
+            "description": "将重要信息存入记忆库。适合保存用户偏好、决策、项目上下文、学到的知识等，供后续对话检索。同时提供 input 和 output 可让记忆更完整（系统会自动提炼结论和步骤）。",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "content": {
                         "type": "string",
-                        "description": "要存储的记忆内容",
+                        "description": "用户的问题、请求或情境",
+                    },
+                    "output": {
+                        "type": "string",
+                        "description": "得出的结论、回答或解决方案。与 content 一起提供时，系统会从中提炼核心知识点和步骤",
                     },
                     "tags": {
                         "type": "array",
@@ -260,11 +264,12 @@ class MCPServer:
 
     async def _capture(self, args: dict) -> str:
         content = args["content"]
+        output = args.get("output")
         tags = args.get("tags", [])
         importance = float(args.get("importance", 50))
 
         gateway = SensoryGateway(self.memory, self.llm, self.vault_path)
-        node = await gateway.ingest(content, source="mcp")
+        node = await gateway.ingest(content, source="mcp", output=output)
 
         if node is None:
             return "内容为空或重复，已跳过。"

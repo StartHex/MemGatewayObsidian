@@ -13,9 +13,9 @@ from memory_os.vault.models import MemoryNode, MemoryStatus, MemoryType
 logger = structlog.get_logger(__name__)
 
 _FRONTMATTER_FIELDS = {
-    "id", "type", "status", "strength", "strength_initial", "decay_rate",
+    "id", "type", "status", "title", "strength", "strength_initial", "decay_rate",
     "last_review", "next_review", "retrieval_count", "retrieval_ease",
-    "last_retrieved", "source", "source_confidence", "raw_input_ref",
+    "last_retrieved", "source", "source_confidence", "raw_input_ref", "raw_output",
     "tags", "links_to", "links_from", "moc", "embedding_id", "vector_status",
     "vector_model", "vector_dim", "context", "emotional_tag", "importance", "confidence",
 }

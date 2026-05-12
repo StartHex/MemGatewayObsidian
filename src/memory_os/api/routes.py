@@ -58,6 +58,7 @@ class CreateMemoryRequest(BaseModel):
     importance: float = 50.0
     context: str | None = None
     source: str | None = None
+    output: str | None = None
 
 
 class SearchRequest(BaseModel):
@@ -102,11 +103,12 @@ async def create_memory(req: CreateMemoryRequest):
     gateway = SensoryGateway(memory, llm, _get_services()[0])
     type_ = MemoryType(req.type) if req.type in [t.value for t in MemoryType] else MemoryType.RAW_INPUT
     if req.source:
-        node = await gateway.ingest(req.content, req.source)
+        node = await gateway.ingest(req.content, req.source, output=req.output)
         return node
     node = await memory.create(
         content=req.content, type_=type_,
         tags=req.tags, importance=req.importance, context=req.context,
+        raw_output=req.output,
     )
     return node
 

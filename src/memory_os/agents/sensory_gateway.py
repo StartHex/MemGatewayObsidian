@@ -28,7 +28,7 @@ class SensoryGateway:
         self.llm = llm
         self.vault_path = vault_path
 
-    async def ingest(self, content: str, source: str) -> MemoryNode | None:
+    async def ingest(self, content: str, source: str, output: str | None = None) -> MemoryNode | None:
         if not content.strip():
             logger.warning("empty_content_skipped")
             return None
@@ -37,7 +37,10 @@ class SensoryGateway:
             logger.info("duplicate_content_skipped")
             return None
 
-        metadata = await self._classify(content)
+        classify_content = content
+        if output:
+            classify_content = f"## 问题\n{content}\n## 回答\n{output}"
+        metadata = await self._classify(classify_content)
 
         node = await self.memory.create(
             content=content,
@@ -46,6 +49,7 @@ class SensoryGateway:
             importance=metadata.importance,
             context=metadata.context,
             source=source,
+            raw_output=output,
         )
         logger.info("ingested", id=node.id, tags=metadata.tags, modality=metadata.modality)
         return node

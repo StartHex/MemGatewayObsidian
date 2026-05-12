@@ -56,6 +56,7 @@ class MemoryNode(BaseModel):
     vector_model: str | None = None
     vector_dim: int | None = None
     context: str | None = None
+    raw_output: str | None = None
     emotional_tag: str | None = None
     importance: float = Field(default=50.0, ge=0.0, le=100.0)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
