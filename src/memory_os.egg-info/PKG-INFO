@@ -3,6 +3,7 @@ Name: memory-os
 Version: 0.1.0
 Summary: Mem-Gateway-Obsidian: Human-brain-inspired multi-agent memory system
 Requires-Python: >=3.11
+License-File: LICENSE
 Requires-Dist: pydantic>=2.0
 Requires-Dist: pyyaml>=6.0
 Requires-Dist: python-frontmatter>=1.0
@@ -26,3 +27,4 @@ Requires-Dist: fastapi>=0.115; extra == "webui"
 Requires-Dist: uvicorn>=0.30; extra == "webui"
 Provides-Extra: all
 Requires-Dist: memory-os[dev,tui,webui]; extra == "all"
+Dynamic: license-file

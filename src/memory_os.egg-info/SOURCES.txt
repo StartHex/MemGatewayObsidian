@@ -1,9 +1,15 @@
+LICENSE
+README.md
 pyproject.toml
 src/__init__.py
 src/memory_os/__init__.py
+src/memory_os/cli.py
+src/memory_os/mcp_server.py
+src/memory_os/scheduler.py
 src/memory_os.egg-info/PKG-INFO
 src/memory_os.egg-info/SOURCES.txt
 src/memory_os.egg-info/dependency_links.txt
+src/memory_os.egg-info/entry_points.txt
 src/memory_os.egg-info/requires.txt
 src/memory_os.egg-info/top_level.txt
 src/memory_os/agents/__init__.py
@@ -30,6 +36,7 @@ src/memory_os/llm/service.py
 src/memory_os/memory/__init__.py
 src/memory_os/memory/service.py
 src/memory_os/sdk/__init__.py
+src/memory_os/sdk/client.py
 src/memory_os/tui/__init__.py
 src/memory_os/tui/prompt_app.py
 src/memory_os/tui/textual_app.py

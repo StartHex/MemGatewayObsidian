@@ -161,8 +161,10 @@ def main():
         llm = LLMService(config)
         sched = AgentScheduler(vault_path, config, memory, llm)
         sched.setup_default_jobs()
-        await sched.start()
-        await run_forever(sched)
+        async def _run():
+            await sched.start()
+            await run_forever(sched)
+        asyncio.run(_run())
     else:
         parser.print_help()
 
