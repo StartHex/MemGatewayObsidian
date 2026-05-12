@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Memory OS — HTMX WebUI</title>
+  <script src="https://unpkg.com/htmx.org@2.0"></script>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: system-ui; background:#0f172a; color:#e2e8f0; display:flex; min-height:100vh; }
+    nav { width:200px; background:#1e293b; padding:1rem; display:flex; flex-direction:column; gap:0.5rem; }
+    nav a { color:#94a3b8; text-decoration:none; padding:0.5rem; border-radius:4px; font-size:0.875rem; }
+    nav a:hover { background:#334155; color:#e2e8f0; }
+    main { flex:1; padding:1.5rem; overflow:auto; }
+    .card { background:#1e293b; border-radius:8px; padding:1rem; margin-bottom:1rem; }
+    input, textarea { background:#334155; border:1px solid #475569; color:#e2e8f0; padding:0.5rem; border-radius:4px; width:100%; }
+    button { background:#2563eb; color:white; border:none; padding:0.5rem 1rem; border-radius:4px; cursor:pointer; }
+    button:hover { background:#1d4ed8; }
+    .stat { text-align:center; }
+    .stat .num { font-size:2rem; font-weight:bold; }
+  </style>
+</head>
+<body>
+  <nav>
+    <h2 style="color:#e2e8f0; margin-bottom:1rem;">Memory OS</h2>
+    <a href="/" hx-get="/" hx-target="main">Dashboard</a>
+    <a href="/search" hx-get="/search" hx-target="main">Search</a>
+    <a href="/canvas/graph" hx-get="/canvas/graph" hx-target="main">Memory Graph</a>
+  </nav>
+  <main id="main">
+    <h1>Dashboard</h1>
+    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; margin:1rem 0;">
+      <div class="card stat"><div class="num" style="color:#4ade80">--</div><div>Active</div></div>
+      <div class="card stat"><div class="num" style="color:#facc15">--</div><div>Fading</div></div>
+      <div class="card stat"><div class="num" style="color:#60a5fa">--</div><div>Total</div></div>
+    </div>
+    <div class="card">
+      <h3>Quick Capture</h3>
+      <form hx-post="/api/v1/memories" hx-swap="none">
+        <textarea name="content" rows="3" placeholder="记录想法..."></textarea>
+        <input type="hidden" name="type" value="raw_input" />
+        <input type="hidden" name="source" value="htmx-webui" />
+        <button type="submit" style="margin-top:0.5rem;">Save</button>
+      </form>
+    </div>
+  </main>
+</body>
+</html>
