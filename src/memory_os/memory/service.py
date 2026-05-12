@@ -18,12 +18,13 @@ from memory_os.vault.models import (
     MemoryStatus,
     MemoryType,
     generate_memory_id,
+    slugify,
 )
 
 logger = structlog.get_logger(__name__)
 
 
-def _file_path_for(vault_path: Path, node: MemoryNode) -> Path:
+def _file_path_for(vault_path: Path, node: MemoryNode, title: str | None = None) -> Path:
     type_dir = {
         MemoryType.RAW_INPUT: "_inbox",
         MemoryType.WORKING_SLOT: "_working",
@@ -31,7 +32,13 @@ def _file_path_for(vault_path: Path, node: MemoryNode) -> Path:
         MemoryType.SEMANTIC: "_memory/semantic",
         MemoryType.PROCEDURAL: "_memory/procedural",
     }[node.type]
-    return vault_path / type_dir / f"{node.id}.md"
+    filename = node.id
+    slug_src = node.title or title
+    if slug_src:
+        slug = slugify(slug_src)
+        if slug:
+            filename = f"{node.id}-{slug}"
+    return vault_path / type_dir / f"{filename}.md"
 
 
 class MemoryService:
@@ -49,6 +56,7 @@ class MemoryService:
         importance: float = 50.0,
         context: str | None = None,
         source: str | None = None,
+        title: str | None = None,
     ) -> MemoryNode:
         node = MemoryNode(
             id=generate_memory_id(type_),
@@ -59,12 +67,13 @@ class MemoryService:
             context=context,
             source=source,
             content=content,
+            title=title,
             strength=float(self.config.memory.initial_strength),
             strength_initial=float(self.config.memory.initial_strength),
             decay_rate=self.config.memory.decay_rate_default,
         )
 
-        file_path = _file_path_for(self.vault_path, node)
+        file_path = _file_path_for(self.vault_path, node, title=title)
         await write_memory(file_path, node)
         await register_node(self._index_path, node.id, node.type.value, str(file_path.relative_to(self.vault_path)))
 

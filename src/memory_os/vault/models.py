@@ -22,10 +22,20 @@ class MemoryStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+def slugify(text: str, max_len: int = 50) -> str:
+    """将文本转为文件名安全的 slug，保留中文。"""
+    import re
+    slug = re.sub(r"[^\w一-鿿\s-]", "", text)
+    slug = re.sub(r"\s+", "-", slug.strip())
+    slug = re.sub(r"-+", "-", slug)
+    return slug[:max_len].rstrip("-")
+
+
 class MemoryNode(BaseModel):
     id: str
     type: MemoryType
     status: MemoryStatus = MemoryStatus.RAW
+    title: str | None = None
     strength: float = Field(default=50.0, ge=0.0, le=100.0)
     strength_initial: float | None = None
     decay_rate: float = Field(default=0.03, ge=0.001, le=0.5)

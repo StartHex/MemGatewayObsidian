@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import structlog
 from pydantic import BaseModel
@@ -13,7 +14,7 @@ from memory_os.llm.service import LLMService
 from memory_os.memory.service import MemoryService
 from memory_os.vault.file_io import list_directory
 from memory_os.vault.frontmatter import parse_memory, update_fields
-from memory_os.vault.models import MemoryNode, MemoryStatus, MemoryType
+from memory_os.vault.models import MemoryNode, MemoryStatus, MemoryType, slugify
 
 logger = structlog.get_logger(__name__)
 
@@ -70,12 +71,15 @@ class ConsolidationAgent:
         summary = await self._summarize(raw_node.content)
         stats.summaries_generated += 1
 
+        title = self._extract_title(summary)
+
         sem_node = await self.memory.create(
             content=summary,
             type_=MemoryType.SEMANTIC,
             tags=raw_node.tags,
             importance=raw_node.importance,
             context=raw_node.context,
+            title=title,
         )
         sem_node.raw_input_ref = f"[[{raw_node.id}]]"
 
@@ -98,7 +102,7 @@ class ConsolidationAgent:
                 "importance": float(sem_node.importance),
                 "status": "active",
                 "tags": sem_node.tags,
-                "file_path": f"_memory/semantic/{sem_node.id}.md",
+                "file_path": str(self._semantic_path(sem_node).relative_to(self.vault_path)),
                 "last_retrieved": datetime.now(timezone.utc).isoformat(),
                 "next_review": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
             }])
@@ -138,13 +142,27 @@ class ConsolidationAgent:
         except Exception:
             return []
 
+    @staticmethod
+    def _extract_title(summary: str) -> str:
+        for line in summary.strip().split("\n"):
+            line = line.strip().lstrip("#").strip()
+            if line:
+                return line
+        return ""
+
+    def _semantic_path(self, node: MemoryNode) -> Path:
+        slug = slugify(node.title) if node.title else ""
+        filename = f"{node.id}-{slug}.md" if slug else f"{node.id}.md"
+        return self.vault_path / "_memory" / "semantic" / filename
+
     def _calc_initial_strength(self, raw: MemoryNode) -> float:
         return raw.importance * 0.3 + raw.source_confidence * 20 + 25
 
     async def _append_episodic_log(self, raw_node: MemoryNode, sem_node: MemoryNode):
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         epi_path = self.vault_path / "_memory" / "episodic" / f"{today}.md"
-        entry = f"- [{datetime.now(timezone.utc).strftime('%H:%M')}] **{raw_node.tags[0] if raw_node.tags else 'memory'}** — [[{sem_node.id}]] (from {raw_node.source or 'unknown'})\n"
+        sem_filename = self._semantic_path(sem_node).stem
+        entry = f"- [{datetime.now(timezone.utc).strftime('%H:%M')}] **{raw_node.tags[0] if raw_node.tags else 'memory'}** — [[{sem_filename}]] (from {raw_node.source or 'unknown'})\n"
         try:
             existing = epi_path.read_text(encoding="utf-8") if epi_path.exists() else f"# {today}\n\n"
             epi_path.write_text(existing + entry, encoding="utf-8")
