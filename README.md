@@ -99,27 +99,34 @@ _memory/archive/ (status: archived) ← 归档保留文件，删除向量
 ### 环境要求
 
 - Python ≥ 3.11
-- [uv](https://docs.astral.sh/uv/)（Python 包管理）
+- [uv](https://docs.astral.sh/uv/)（推荐，也可用 pip）
 - [Obsidian](https://obsidian.md/)（可选，用于浏览 vault 中的笔记）
-- LLM API key（Anthropic 或 OpenAI 兼容）
+- LLM API key（支持 Anthropic、OpenAI、以及任何 OpenAI 兼容接口如 Ollama）
 
 ### 快速开始
 
 ```bash
-# 1. 安装
-pip install memory-os
+# 1. 克隆仓库
+git clone git@github.com:StartHex/MemGatewayObsidian.git
+cd MemGatewayObsidian
 
-# 2. 初始化 vault（在 Obsidian 中打开此目录即可浏览笔记）
+# 2. 安装（可编辑模式，方便后续更新 git pull 即可）
+uv sync
+# 或者用 pip: pip install -e .
+
+# 3. 初始化 vault（在 Obsidian 中打开此目录即可浏览笔记）
 memory-os init --vault ~/my-memory
 
-# 3. 配置 LLM
+# 4. 配置 LLM
 memory-os config set llm.chat.provider anthropic
 memory-os config set llm.chat.model claude-sonnet-4-6
 memory-os config set llm.chat.api_key $ANTHROPIC_API_KEY
 
-# 4. 启动服务
+# 5. 启动服务
 memory-os serve          # 后台常驻，Agent 开始工作
 ```
+
+> **提示**：项目尚未发布到 PyPI。执行 `uv sync` 或 `pip install -e .` 即可将 `memory-os` 命令注册到系统 PATH。
 
 ### LLM 配置示例
 
@@ -177,8 +184,8 @@ llm:
 
 | | GUI (Tauri) | TUI (Textual) | WebUI (localhost) |
 |---|---|---|---|
-| 安装 | `brew install memory-os` | `pip install memory-os` | 内置 |
-| 启动 | 桌面应用 | `memory-os tui` | `memory-os web` |
+| 安装 | 克隆仓库后 `uv sync --extra gui` | 克隆仓库后 `uv sync --extra tui` | 内置 |
+| 启动 | 桌面应用（Tauri 构建） | `memory-os tui` | `memory-os web` |
 | 适用场景 | 桌面常驻 / 全局快捷键 | SSH 远程 / vim 用户 | 可视化 / 跨设备 |
 | Canvas | 内嵌 WebView（完整） | ASCII 降级 | 完整 D3.js / ECharts |
 
