@@ -64,7 +64,7 @@ class OpenAIEmbeddingAdapter(BaseEmbeddingAdapter):
             "encoding_format": "float",
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
             resp = await client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()

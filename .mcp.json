@@ -1,0 +1,12 @@
+{
+  "memory-os": {
+    "type": "stdio",
+    "command": "uv",
+    "args": [
+      "run",
+      "--directory", "/Users/shx/mem-gateway-obsidian",
+      "memory-os", "mcp",
+      "--vault", "/Users/shx/my-memory"
+    ]
+  }
+}
