@@ -227,7 +227,7 @@ async def main():
     vault_path = Path(args.vault)
     config = load_config(vault_path)
     memory = MemoryService(vault_path, config)
-    llm = LLMService(config)
+    llm = LLMService(config, vault_path=vault_path)
 
     scheduler = AgentScheduler(vault_path, config, memory, llm)
     scheduler.setup_default_jobs()

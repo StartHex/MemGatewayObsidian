@@ -36,7 +36,7 @@ async def _lifespan(app: FastAPI):
     try:
         config = load_config(vault_path)
         memory = MemoryService(vault_path, config)
-        llm = LLMService(config)
+        llm = LLMService(config, vault_path=vault_path)
         from memory_os.scheduler import AgentScheduler
         _scheduler = AgentScheduler(vault_path, config, memory, llm)
         _scheduler.setup_default_jobs()
@@ -75,7 +75,7 @@ def _get_services():
     vault_path = Path(os.environ.get("MEMORY_OS_VAULT", str(Path.home() / "memory-vault")))
     config = load_config(vault_path)
     memory = MemoryService(vault_path, config)
-    llm = LLMService(config)
+    llm = LLMService(config, vault_path=vault_path)
     return vault_path, config, memory, llm
 
 
@@ -217,3 +217,28 @@ async def trigger_review(date: str | None = None):
     vault_path, config, memory, llm = _get_services()
     agent = ReviewAgent(memory, llm, vault_path, config)
     return await agent.run(target_date=date)
+
+
+@app.post("/api/v1/working-memory/{action}")
+async def working_memory_action(action: str, request: dict | None = None):
+    from memory_os.agents.working_memory import WorkingMemoryManager
+    vault_path, config, memory, llm = _get_services()
+    wm = WorkingMemoryManager(memory, config, vault_path, llm)
+    args = request or {}
+
+    if action == "list":
+        return await wm.list_slots()
+    elif action == "promote":
+        return {"slot_id": await wm.promote_to_slot(args.get("memory_id", ""), args.get("slot_name", "untitled"))}
+    elif action == "update":
+        return {"ok": await wm.update_slot(int(args.get("slot_id", 0)), args.get("content", ""))}
+    elif action == "evict":
+        slot = await wm.get_slot(int(args.get("slot_id", 0)))
+        if slot is None:
+            raise HTTPException(404, "槽位不存在")
+        await wm._evict(slot)
+        return {"ok": True}
+    elif action == "conclude":
+        trace = await wm.conclude_slot(int(args.get("slot_id", 0)))
+        return trace.model_dump() if trace else {"trace": None}
+    raise HTTPException(400, f"未知 action: {action}")

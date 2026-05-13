@@ -23,6 +23,7 @@ class SearchStrategy(str, Enum):
     GRAPH = "graph"
     TIMELINE = "timeline"
     CONTEXT = "context"
+    TRACEBACK = "traceback"
 
 
 class SearchResult(BaseModel):
@@ -66,6 +67,8 @@ class RetrievalAgent:
             return await self._search_timeline(query, top_k)
         if strategy == SearchStrategy.CONTEXT:
             return await self._search_context(query, top_k)
+        if strategy == SearchStrategy.TRACEBACK:
+            return await self._search_traceback(query, top_k)
 
         return await self._search_vector(query, top_k, where)
 
@@ -323,6 +326,37 @@ class RetrievalAgent:
             })
 
         return {"total": total, "items": items}
+
+    async def _search_traceback(self, query: str, top_k: int) -> list[SearchResult]:
+        trace_dir = self.vault_path / "_memory" / "procedural"
+        results = []
+        if not trace_dir.exists():
+            return results
+
+        files = await list_directory(trace_dir, "trace-*.md")
+        query_lower = query.lower()
+        for f in files:
+            try:
+                content = f.read_text(encoding="utf-8")
+                if query_lower not in content.lower():
+                    continue
+                node = await parse_memory(f)
+                title = node.title or node.content.split("\n")[0].replace("# ", "")[:80]
+                snippet = self._extract_snippet(node.content, query)
+                score = 0.7 + 0.3 * (node.importance / 100)
+                results.append(SearchResult(
+                    memory_id=node.id,
+                    title=title,
+                    snippet=snippet,
+                    score=min(score, 1.0),
+                    strategy=SearchStrategy.TRACEBACK,
+                    file_path=str(f.relative_to(self.vault_path)),
+                ))
+            except Exception:
+                continue
+
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results[:top_k]
 
     def _extract_snippet(self, content: str, query: str, window: int = 100) -> str:
         idx = content.lower().find(query.lower())

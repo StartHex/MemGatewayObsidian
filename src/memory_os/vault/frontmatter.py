@@ -18,6 +18,7 @@ _FRONTMATTER_FIELDS = {
     "last_retrieved", "source", "source_confidence", "raw_input_ref", "raw_output",
     "tags", "links_to", "links_from", "moc", "embedding_id", "vector_status",
     "vector_model", "vector_dim", "context", "emotional_tag", "importance", "confidence",
+    "conflict", "conflicting_with", "conflict_note",
 }
 
 

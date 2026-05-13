@@ -21,6 +21,7 @@ class ReviewReport(BaseModel):
     target_date: str = ""
     activities_count: int = 0
     new_memories: int = 0
+    token_usage: dict = {}
     topics: list[str] = []
     key_decisions: list[str] = []
     knowledge_gaps: list[str] = []
@@ -35,6 +36,7 @@ class ReviewAgent:
         self.llm = llm
         self.vault_path = vault_path
         self.config = config
+        self.token_tracker = getattr(llm, 'token_tracker', None)
 
     async def run(self, target_date: str | None = None) -> ReviewReport:
         if target_date is None:
@@ -55,6 +57,9 @@ class ReviewAgent:
 
         new_memories = await self._get_memories_from_date(date_str)
         report.new_memories = len(new_memories)
+
+        if self.token_tracker:
+            report.token_usage = self.token_tracker.daily_total(date_str)
 
         if episodic_log or new_memories:
             report = await self._generate_report(report, episodic_log, new_memories)
@@ -93,6 +98,13 @@ class ReviewAgent:
             for m in new_memories[:30]
         ) if new_memories else "（无新记忆）"
 
+        token_text = ""
+        if report.token_usage:
+            tu = report.token_usage
+            token_text = f"\n## 昨日 Token 消耗\n总计: {tu['total_input']} 输入 + {tu['total_output']} 输出 = {tu['total_input'] + tu['total_output']} tokens\n"
+            for model, stats in tu.get("by_model", {}).items():
+                token_text += f"- {model}: {stats['input_tokens']} 输入 + {stats['output_tokens']} 输出\n"
+
         prompt = f"""## 昨日时间线
 {episodic_log[:3000] or '（无活动记录）'}
 
@@ -101,7 +113,7 @@ class ReviewAgent:
 
 ## 当前记忆库状态
 {stats_summary}
-
+{token_text}
 请生成以下内容（JSON 格式，不要 Markdown）：
 {{
   "topics": ["话题1", "话题2"],
@@ -200,6 +212,16 @@ class ReviewAgent:
             lines.append("## 行动建议")
             for a in report.actions:
                 lines.append(f"- {a}")
+            lines.append("")
+
+        if report.token_usage:
+            tu = report.token_usage
+            lines.append("## Token 消耗")
+            lines.append(f"- 总输入: {tu['total_input']} tokens")
+            lines.append(f"- 总输出: {tu['total_output']} tokens")
+            lines.append(f"- 合计: {tu['total_input'] + tu['total_output']} tokens")
+            for model, stats in tu.get("by_model", {}).items():
+                lines.append(f"  - {model}: {stats['input_tokens']} in + {stats['output_tokens']} out")
             lines.append("")
 
         if report.narrative:

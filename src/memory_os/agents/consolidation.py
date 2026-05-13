@@ -88,9 +88,12 @@ class ConsolidationAgent:
         )
         sem_node.raw_input_ref = f"[[{raw_node.id}]]"
 
-        links = await self._discover_links(summary)
+        links, conflicts = await self._discover_links_and_conflicts(summary, sem_node.id)
         sem_node.links_to = links
         stats.links_discovered += len(links)
+
+        if conflicts:
+            await self._apply_conflicts(sem_node, conflicts)
 
         try:
             embedding = (await self.llm.embed([summary]))[0]
@@ -219,7 +222,7 @@ class ConsolidationAgent:
     async def _discover_links(self, summary: str) -> list[str]:
         try:
             embedding = (await self.llm.embed([summary]))[0]
-            results = self._vector_store().search("semantic", embedding, top_k=5)
+            results = await self._vector_store().search("semantic", embedding, top_k=5)
             links = []
             for r in results:
                 if r.get("strength", 0) > 30:
@@ -227,6 +230,78 @@ class ConsolidationAgent:
             return links
         except Exception:
             return []
+
+    async def _discover_links_and_conflicts(
+        self, summary: str, new_node_id: str | None,
+    ) -> tuple[list[str], list[dict]]:
+        try:
+            embedding = (await self.llm.embed([summary]))[0]
+            results = await self._vector_store().search("semantic", embedding, top_k=5)
+        except Exception:
+            return [], []
+
+        links = []
+        conflicts = []
+        high_conf_candidates = []
+
+        for r in results:
+            if r.get("strength", 0) > 30:
+                links.append(f"[[{r.get('file_path', '')}]]")
+            if r.get("importance", 0) > 70 and new_node_id:
+                high_conf_candidates.append(r)
+
+        if high_conf_candidates and new_node_id:
+            for cand in high_conf_candidates[:3]:
+                conflict = await self._check_conflict(summary, cand)
+                if conflict:
+                    conflicts.append(conflict)
+
+        return links, conflicts
+
+    async def _check_conflict(self, new_summary: str, existing: dict) -> dict | None:
+        existing_id = existing.get("memory_id", "")
+        try:
+            existing_node = await self.memory.get(existing_id)
+        except Exception:
+            return None
+
+        existing_content = existing_node.content[:800]
+        prompt = f"""判断以下两条知识是否存在事实矛盾（如互相否定、结论相反、前提冲突）。
+
+新知识:
+{new_summary[:500]}
+
+已有知识 (高置信度):
+{existing_content}
+
+仅返回 JSON:
+{{"conflict": true/false, "note": "矛盾点简述（若冲突）"}}"""
+
+        try:
+            from memory_os.llm.models import UnifiedChatRequest
+            import json
+            resp = await self.llm.chat(
+                UnifiedChatRequest(
+                    system="你是知识一致性校验助手。仅返回 JSON。",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=256,
+                    response_format="json_object",
+                ),
+                agent_name="consolidation",
+            )
+            data = json.loads(resp.content)
+            if data.get("conflict"):
+                return {
+                    "existing_id": existing_id,
+                    "new_summary": new_summary[:100],
+                    "existing_title": existing_node.title or existing_id,
+                    "note": data.get("note", "知识矛盾"),
+                }
+        except Exception:
+            pass
+
+        return None
 
     @staticmethod
     def _extract_title(summary: str) -> str:
@@ -245,6 +320,48 @@ class ConsolidationAgent:
         slug = slugify(node.title) if node.title else ""
         filename = f"{node.id}-{slug}.md" if slug else f"{node.id}.md"
         return self.vault_path / "_memory" / "procedural" / filename
+
+    async def _apply_conflicts(self, new_node: MemoryNode, conflicts: list[dict]) -> None:
+        for c in conflicts:
+            existing_id = c["existing_id"]
+            try:
+                existing_node = await self.memory.get(existing_id)
+            except Exception:
+                continue
+
+            new_node.conflict = True
+            new_node.conflicting_with = list(set(new_node.conflicting_with + [existing_id]))
+            new_node.conflict_note = c.get("note", "知识矛盾")
+
+            existing_node.conflict = True
+            existing_node.conflicting_with = list(set(existing_node.conflicting_with + [new_node.id]))
+            existing_node.conflict_note = c.get("note", "知识矛盾")
+
+            await self.memory.update(new_node.id, conflict=True, conflicting_with=new_node.conflicting_with, conflict_note=new_node.conflict_note)
+            await self.memory.update(existing_id, conflict=True, conflicting_with=existing_node.conflicting_with, conflict_note=existing_node.conflict_note)
+
+            self._write_conflict_report(new_node.id, existing_id, c.get("note", ""))
+
+    def _write_conflict_report(self, new_id: str, existing_id: str, note: str) -> None:
+        meta_dir = self.vault_path / "_meta"
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        conflict_path = meta_dir / "cognitive-conflicts.md"
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+
+        new_entry = f"- [{now}] [[{new_id}]] ↔ [[{existing_id}]]: {note}\n  ⚠️ 待解决\n"
+
+        if conflict_path.exists():
+            content = conflict_path.read_text(encoding="utf-8")
+            if "## 待解决" in content:
+                content = content.replace("## 待解决\n", f"## 待解决\n{new_entry}")
+            else:
+                content = f"# 认知冲突日志\n\n## 待解决\n{new_entry}\n" + content
+            conflict_path.write_text(content, encoding="utf-8")
+        else:
+            conflict_path.write_text(f"# 认知冲突日志\n\n## 待解决\n{new_entry}\n", encoding="utf-8")
+        logger.info("conflict_recorded", new_id=new_id, existing_id=existing_id)
 
     def _calc_initial_strength(self, raw: MemoryNode) -> float:
         return raw.importance * 0.3 + raw.source_confidence * 20 + 25

@@ -60,6 +60,9 @@ class MemoryNode(BaseModel):
     emotional_tag: str | None = None
     importance: float = Field(default=50.0, ge=0.0, le=100.0)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    conflict: bool = False
+    conflicting_with: list[str] = Field(default_factory=list)
+    conflict_note: str | None = None
     content: str = ""
 
 
@@ -73,4 +76,5 @@ def generate_memory_id(type_: MemoryType) -> str:
         MemoryType.PROCEDURAL: "pro",
     }[type_]
     ts = dt.now().strftime("%Y%m%d-%H%M%S")
-    return f"mem-{prefix}-{ts}"
+    suffix = dt.now().strftime("%f")[:3]  # milliseconds to avoid same-second collisions
+    return f"mem-{prefix}-{ts}{suffix}"

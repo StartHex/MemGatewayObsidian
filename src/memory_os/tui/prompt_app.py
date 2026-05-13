@@ -65,7 +65,7 @@ async def main_loop(vault_path: str):
     vault = Path(vault_path)
     config = load_config(vault)
     memory = MemoryService(vault, config)
-    llm = LLMService(config)
+    llm = LLMService(config, vault_path=vault)
 
     session = PromptSession(style=STYLE, completer=COMMANDS)
 

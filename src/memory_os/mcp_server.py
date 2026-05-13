@@ -205,6 +205,37 @@ def _build_tools() -> list[dict]:
                 },
             },
         },
+        {
+            "name": "working_memory",
+            "description": "管理工作记忆槽位。支持 list/promote/update/evict/conclude 操作。conclude 分析操作日志，检测推理链并保存为 trace。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "promote", "update", "evict", "conclude"],
+                        "description": "操作类型",
+                    },
+                    "slot_id": {
+                        "type": "integer",
+                        "description": "槽位 ID（update/evict/conclude 需要）",
+                    },
+                    "memory_id": {
+                        "type": "string",
+                        "description": "记忆 ID（promote 需要）",
+                    },
+                    "slot_name": {
+                        "type": "string",
+                        "description": "槽位名称（promote 需要）",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "新内容（update 需要）",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
     ]
 
 
@@ -215,7 +246,7 @@ class MCPServer:
         self.vault_path = vault_path
         self.config = load_config(vault_path)
         self.memory = MemoryService(vault_path, self.config)
-        self.llm = LLMService(self.config)
+        self.llm = LLMService(self.config, vault_path=vault_path)
         self._tools = _build_tools()
         self._initialized = False
 
@@ -315,6 +346,8 @@ class MCPServer:
             return await self._find_similar(args)
         elif name == "review_memory":
             return await self._review_memory(args)
+        elif name == "working_memory":
+            return await self._working_memory(args)
         else:
             return f"未知工具: {name}"
 
@@ -493,6 +526,58 @@ class MCPServer:
             lines.append(f"\n{report.narrative}")
 
         return "\n".join(lines)
+
+    async def _working_memory(self, args: dict) -> str:
+        from memory_os.agents.working_memory import WorkingMemoryManager
+
+        action = args["action"]
+        wm = WorkingMemoryManager(self.memory, self.config, self.vault_path, self.llm)
+
+        if action == "list":
+            slots = await wm.list_slots()
+            if not slots:
+                return "工作记忆槽位为空。"
+            lines = [f"工作记忆槽位 ({len(slots)}/{wm.max_slots}):"]
+            for s in slots:
+                lines.append(f"- [slot {s['slot_id']}] {s['slot_name']} (ops:{s['operation_count']}) pinned:{s['pinned']}")
+            return "\n".join(lines)
+
+        elif action == "promote":
+            memory_id = args.get("memory_id")
+            slot_name = args.get("slot_name", "untitled")
+            if not memory_id:
+                return "错误: promote 需要 memory_id 参数"
+            slot_id = await wm.promote_to_slot(memory_id, slot_name)
+            return f"已提升到槽位 {slot_id}: {slot_name}"
+
+        elif action == "update":
+            slot_id = args.get("slot_id")
+            content = args.get("content", "")
+            if slot_id is None:
+                return "错误: update 需要 slot_id 参数"
+            ok = await wm.update_slot(int(slot_id), content)
+            return f"槽位 {slot_id} 已更新" if ok else f"槽位 {slot_id} 不存在"
+
+        elif action == "evict":
+            slot_id = args.get("slot_id")
+            if slot_id is None:
+                return "错误: evict 需要 slot_id 参数"
+            slot = await wm.get_slot(int(slot_id))
+            if slot is None:
+                return f"槽位 {slot_id} 不存在"
+            await wm._evict(slot)
+            return f"槽位 {slot_id} 已逐出"
+
+        elif action == "conclude":
+            slot_id = args.get("slot_id")
+            if slot_id is None:
+                return "错误: conclude 需要 slot_id 参数"
+            trace = await wm.conclude_slot(int(slot_id))
+            if trace:
+                return f"推理链已保存: {trace.title}\n步骤: {len(trace.steps)} 步\n结论: {trace.conclusion}"
+            return f"槽位 {slot_id} 已结束，未检测到推理链"
+
+        return f"未知 action: {action}"
 
     async def _get_stats(self) -> str:
         from memory_os.vault.file_io import list_directory

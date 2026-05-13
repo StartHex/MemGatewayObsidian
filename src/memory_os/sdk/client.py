@@ -156,6 +156,21 @@ class MemoryOSClient:
         body = {"date": date} if date else {}
         return await self._post("/api/v1/system/review", body)
 
+    async def wm_promote(self, memory_id: str, slot_name: str = "untitled") -> dict:
+        return await self._post("/api/v1/working-memory/promote", {"memory_id": memory_id, "slot_name": slot_name})
+
+    async def wm_update(self, slot_id: int, content: str) -> dict:
+        return await self._post("/api/v1/working-memory/update", {"slot_id": slot_id, "content": content})
+
+    async def wm_list(self) -> list[dict]:
+        return await self._post("/api/v1/working-memory/list")
+
+    async def wm_evict(self, slot_id: int) -> dict:
+        return await self._post("/api/v1/working-memory/evict", {"slot_id": slot_id})
+
+    async def wm_conclude(self, slot_id: int) -> dict:
+        return await self._post("/api/v1/working-memory/conclude", {"slot_id": slot_id})
+
 
 class SyncMemoryOSClient:
     """同步 HTTP 客户端（适合非异步场景）。"""
@@ -244,3 +259,18 @@ class SyncMemoryOSClient:
     def trigger_review(self, date: str | None = None) -> dict:
         body = {"date": date} if date else {}
         return self._post("/api/v1/system/review", body)
+
+    def wm_promote(self, memory_id: str, slot_name: str = "untitled") -> dict:
+        return self._post("/api/v1/working-memory/promote", {"memory_id": memory_id, "slot_name": slot_name})
+
+    def wm_update(self, slot_id: int, content: str) -> dict:
+        return self._post("/api/v1/working-memory/update", {"slot_id": slot_id, "content": content})
+
+    def wm_list(self) -> list[dict]:
+        return self._post("/api/v1/working-memory/list")
+
+    def wm_evict(self, slot_id: int) -> dict:
+        return self._post("/api/v1/working-memory/evict", {"slot_id": slot_id})
+
+    def wm_conclude(self, slot_id: int) -> dict:
+        return self._post("/api/v1/working-memory/conclude", {"slot_id": slot_id})

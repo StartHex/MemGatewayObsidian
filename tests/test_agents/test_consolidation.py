@@ -266,3 +266,169 @@ async def test_summarize_pair_method(test_vault_path, test_config):
     assert result is not None
     assert len(llm.last_prompt) > 0
     assert "问题内容" in llm.last_prompt or "回答内容" in llm.last_prompt
+
+
+class ConflictMockLLM:
+    """Returns conflict detection result."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    async def chat(self, request: UnifiedChatRequest, agent_name=None) -> UnifiedChatResponse:
+        content = request.messages[-1]["content"] if request.messages else ""
+        self.calls.append({"system": request.system, "prompt": content})
+
+        if "判断以下两条知识是否存在事实矛盾" in content:
+            return UnifiedChatResponse(
+                content='{"conflict": true, "note": "两条知识在 Docker 配置方案上存在矛盾"}',
+                model="mock", input_tokens=30, output_tokens=15, finish_reason="stop",
+            )
+        elif "摘要以下内容" in content or "请提炼核心结论" in content:
+            return UnifiedChatResponse(
+                content="提取的核心结论：测试摘要",
+                model="mock", input_tokens=10, output_tokens=5, finish_reason="stop",
+            )
+        elif "是否包含步骤流程" in content:
+            return UnifiedChatResponse(
+                content='{"steps": false}',
+                model="mock", input_tokens=10, output_tokens=5, finish_reason="stop",
+            )
+        return UnifiedChatResponse(
+            content="默认响应", model="mock", input_tokens=5, output_tokens=3, finish_reason="stop",
+        )
+
+    async def embed(self, texts):
+        return [[0.1] * 1024 for _ in texts]
+
+
+class NoConflictMockLLM:
+    """Returns no-conflict result."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    async def chat(self, request: UnifiedChatRequest, agent_name=None) -> UnifiedChatResponse:
+        content = request.messages[-1]["content"] if request.messages else ""
+        self.calls.append({"system": request.system, "prompt": content})
+
+        if "判断以下两条知识是否存在事实矛盾" in content:
+            return UnifiedChatResponse(
+                content='{"conflict": false}',
+                model="mock", input_tokens=20, output_tokens=10, finish_reason="stop",
+            )
+        elif "摘要以下内容" in content or "请提炼核心结论" in content:
+            return UnifiedChatResponse(
+                content="提取的核心结论：测试摘要",
+                model="mock", input_tokens=10, output_tokens=5, finish_reason="stop",
+            )
+        elif "是否包含步骤流程" in content:
+            return UnifiedChatResponse(
+                content='{"steps": false}',
+                model="mock", input_tokens=10, output_tokens=5, finish_reason="stop",
+            )
+        return UnifiedChatResponse(
+            content="默认响应", model="mock", input_tokens=5, output_tokens=3, finish_reason="stop",
+        )
+
+    async def embed(self, texts):
+        return [[0.1] * 1024 for _ in texts]
+
+
+@pytest.mark.asyncio
+async def test_conflict_detected_marks_both(test_vault_path, test_config):
+    """检测到冲突时标记双方"""
+    llm = ConflictMockLLM()
+    memory = MemoryService(test_vault_path, test_config)
+    agent = ConsolidationAgent(memory, llm, test_vault_path, test_config)
+
+    # Create first high-importance memory
+    raw1 = await memory.create(
+        content="Docker 推荐使用 docker-compose v2", type_=MemoryType.RAW_INPUT,
+        tags=["docker"], importance=90.0, raw_output="使用 compose v2",
+    )
+    await agent._process_one(raw1)
+
+    # Create second memory that will conflict with the first
+    raw2 = await memory.create(
+        content="Docker 推荐使用 Kubernetes 而非 compose", type_=MemoryType.RAW_INPUT,
+        tags=["docker"], importance=90.0, raw_output="用 K8s",
+    )
+    await agent._process_one(raw2)
+
+    # Check that at least one memory was marked as conflict
+    sem_memories = await memory.list_by_type(MemoryType.SEMANTIC)
+    conflicts = [m for m in sem_memories if m.conflict]
+    assert len(conflicts) >= 2
+
+
+@pytest.mark.asyncio
+async def test_no_conflict_when_no_contradiction(test_vault_path, test_config):
+    """无冲突时不标记"""
+    llm = NoConflictMockLLM()
+    memory = MemoryService(test_vault_path, test_config)
+    agent = ConsolidationAgent(memory, llm, test_vault_path, test_config)
+
+    raw1 = await memory.create(
+        content="Python 适合数据科学", type_=MemoryType.RAW_INPUT,
+        tags=["python"], importance=90.0, raw_output="Python 数据科学生态完善",
+    )
+    await agent._process_one(raw1)
+
+    raw2 = await memory.create(
+        content="Python 也适合 Web 开发", type_=MemoryType.RAW_INPUT,
+        tags=["python"], importance=90.0, raw_output="Django/Flask",
+    )
+    await agent._process_one(raw2)
+
+    sem_memories = await memory.list_by_type(MemoryType.SEMANTIC)
+    conflicts = [m for m in sem_memories if m.conflict]
+    assert len(conflicts) == 0
+
+
+@pytest.mark.asyncio
+async def test_conflict_writes_to_cognitive_conflicts_md(test_vault_path, test_config):
+    """冲突写入 cognitive-conflicts.md"""
+    llm = ConflictMockLLM()
+    memory = MemoryService(test_vault_path, test_config)
+    agent = ConsolidationAgent(memory, llm, test_vault_path, test_config)
+
+    raw1 = await memory.create(
+        content="推荐使用 React", type_=MemoryType.RAW_INPUT,
+        tags=["frontend"], importance=90.0, raw_output="React 生态最好",
+    )
+    await agent._process_one(raw1)
+
+    raw2 = await memory.create(
+        content="推荐使用 Vue", type_=MemoryType.RAW_INPUT,
+        tags=["frontend"], importance=90.0, raw_output="Vue 更简单",
+    )
+    await agent._process_one(raw2)
+
+    conflict_path = test_vault_path / "_meta" / "cognitive-conflicts.md"
+    assert conflict_path.exists()
+    content = conflict_path.read_text(encoding="utf-8")
+    assert "待解决" in content
+
+
+@pytest.mark.asyncio
+async def test_check_conflict_method(test_vault_path, test_config):
+    """_check_conflict 方法检测到矛盾"""
+    llm = ConflictMockLLM()
+    memory = MemoryService(test_vault_path, test_config)
+    agent = ConsolidationAgent(memory, llm, test_vault_path, test_config)
+
+    # Create a high-importance memory that can be found
+    existing = await memory.create(
+        content="使用 Docker Compose 管理多容器应用是最佳实践",
+        type_=MemoryType.SEMANTIC,
+        tags=["docker"],
+        importance=90.0,
+    )
+
+    result = await agent._check_conflict(
+        "推荐使用 Kubernetes 而非 Docker Compose",
+        {"memory_id": existing.id, "importance": 90, "strength": 80},
+    )
+    assert result is not None
+    assert result["existing_id"] == existing.id
+    assert result["note"]

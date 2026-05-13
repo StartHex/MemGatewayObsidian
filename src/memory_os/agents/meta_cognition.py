@@ -27,6 +27,7 @@ class HealthReport(BaseModel):
     strength_distribution: dict[str, int] = {}
     orphan_count: int = 0
     vector_inconsistencies: int = 0
+    conflict_count: int = 0
     knowledge_gaps: list[str] = []
     recommendations: list[str] = []
 
@@ -46,12 +47,14 @@ class MetaCognitionAgent:
             orphans,
             vec_inconsistencies,
             gaps,
+            conflicts,
         ) = await asyncio.gather(
             self._check_inbox(),
             self._calc_strength_distribution(),
             self._find_orphans(),
             self._verify_vector_consistency(),
             self._detect_gaps(),
+            self._count_conflicts(),
         )
 
         report = HealthReport(
@@ -61,6 +64,7 @@ class MetaCognitionAgent:
             strength_distribution=strength_dist,
             orphan_count=orphans,
             vector_inconsistencies=vec_inconsistencies,
+            conflict_count=conflicts,
             knowledge_gaps=gaps,
         )
         report.recommendations = self._generate_recommendations(report)
@@ -115,6 +119,24 @@ class MetaCognitionAgent:
             gaps.append("超过 10% 的记忆处于 critical 状态，即将被归档")
         return gaps
 
+    async def _count_conflicts(self) -> int:
+        count = 0
+        dirs = [
+            self.vault_path / "_memory" / "semantic",
+            self.vault_path / "_memory" / "episodic",
+            self.vault_path / "_memory" / "procedural",
+        ]
+        for d in dirs:
+            files = await list_directory(d, "*.md")
+            for f in files[:500]:
+                try:
+                    node = await parse_memory(f)
+                    if node.conflict:
+                        count += 1
+                except Exception:
+                    continue
+        return count
+
     def _generate_recommendations(self, report: HealthReport) -> list[str]:
         recs = []
         if report.inbox_pending > 20:
@@ -125,6 +147,8 @@ class MetaCognitionAgent:
             recs.append(f"孤岛笔记 {report.orphan_count} 条，建议加强 Consolidation 阶段的链接化")
         if report.vector_inconsistencies > 0:
             recs.append(f"向量与文件有 {report.vector_inconsistencies} 处不一致，建议运行 rebuild-vector-index")
+        if report.conflict_count > 0:
+            recs.append(f"检测到 {report.conflict_count} 个认知冲突，建议审查 _meta/cognitive-conflicts.md 并解决矛盾")
         return recs
 
     async def generate_narrative_report(self) -> str:

@@ -23,7 +23,8 @@ Memory OS 用工程手段逐个映射：
 | 工作记忆容量 4-7 组块 | 持久化槽位，可踢出可恢复 |
 | 睡眠巩固（离线期重组记忆） | Consolidation Agent 定时批量摘要+链接+向量化 |
 | 错误记忆（脑补缺失信息） | `_inbox/` 原始输入不可变，全链路 provenance |
-| 检索失败（舌尖现象） | 6 条互补路径：精确ID → 关键词 → 向量 → 图谱 → 时间线 → 上下文 |
+| 认知失调（新旧知识矛盾） | Consolidation Agent 向量相似度+LLM 冲突检测，标记 `conflict: true`，写入 `cognitive-conflicts.md` |
+| 检索失败（舌尖现象） | 7 条互补路径：精确ID → 关键词 → 向量 → 图谱 → 时间线 → 上下文 → 推理回溯 |
 
 ## 系统架构
 
@@ -75,12 +76,12 @@ Memory OS 用工程手段逐个映射：
 | Agent | 对应脑区 | 触发方式 | 做什么 |
 |-------|---------|---------|--------|
 | **Sensory Gateway** | 丘脑+感觉皮层 | 实时 | 接收所有输入（支持 input+output 对）→去重→分类→写 `_inbox/` |
-| **Working Memory Manager** | 前额叶 | 实时 | 维护 ≤7 个活跃槽位，满时按 LRU+重要性踢出 |
-| **Consolidation Agent** | 海马体→新皮层 | 每4h / inbox≥20 | 从 Q&A 对提炼语义记忆+程序记忆+情景日志 |
-| **Retrieval Agent** | 前额叶+颞叶 | 按需 | 6 条检索路径，向量语义为默认主路径，支持列表+按ID相似搜索 |
-| **Review Agent** | 前额叶+默认模式网络 | 每日上午 8:57 | 回顾昨日记忆活动，LLM 生成复盘报告（话题/决策/缺口/连接/行动建议） |
+| **Working Memory Manager** | 前额叶 | 实时 | 维护 ≤7 个活跃槽位，记录操作日志，LLM 检测推理链→保存为程序记忆 trace |
+| **Consolidation Agent** | 海马体→新皮层 | 每4h / inbox≥20 | 从 Q&A 对提炼语义+程序记忆+情景日志；检测新旧记忆矛盾→标记冲突 |
+| **Retrieval Agent** | 前额叶+颞叶 | 按需 | 7 条检索路径（含推理回溯），向量语义为默认主路径，支持列表+按ID相似搜索 |
+| **Review Agent** | 前额叶+默认模式网络 | 每日上午 8:57 | 回顾昨日记忆活动，LLM 生成复盘报告（话题/决策/缺口/连接/行动建议+Token 消耗） |
 | **Forgetting Agent** | 前额叶抑制 | 每日凌晨3点 | 计算强度衰减→分级归档→向量关联清理 |
-| **Meta-Cognition Agent** | 前扣带皮层 | 每周一早9点 | 健康报告+缺口发现+向量一致性校验+调参建议 |
+| **Meta-Cognition Agent** | 前扣带皮层 | 每周一早9点 | 健康报告+缺口发现+认知冲突统计+向量一致性校验+调参建议 |
 
 ## 记忆生命周期
 
@@ -95,6 +96,9 @@ _memory/semantic/ (status: active)
 _memory/episodic/ (status: active)
 _memory/procedural/ (status: active)
 _vectors/*.lance                     ← 向量索引（派生数据）
+    │
+    ▼ 认知冲突检测（Consolidation Agent）
+_meta/cognitive-conflicts.md         ← 矛盾记忆记录
     │
     ▼ 每日复盘（Review Agent）
 _memory/episodic/review-YYYY-MM-DD.md  ← 复盘报告
@@ -218,6 +222,7 @@ Consolidation Agent 提炼 3 种记忆：
   - Episodic: "什么时候讨论了什么"（情景日志）
   - Semantic: "学到了什么知识点"（知识卡片）
   - Procedural: "怎么做"（步骤流程）
+  + 冲突检测：发现与高置信度旧记忆矛盾时标记 conflict
     │
     ▼  随时
 你搜索 "上个月讨论过的那个 agent 通信方案"
@@ -227,7 +232,7 @@ Consolidation Agent 提炼 3 种记忆：
     │
     ▼  每天上午 8:57 自动
 Review Agent 回顾昨日所有记忆活动 → 生成复盘报告
-（话题总结 / 关键决策 / 知识缺口 / 连接建议 / 行动建议）
+（话题总结 / 关键决策 / 知识缺口 / 连接建议 / 行动建议 / Token 消耗分模型统计）
     │
     ▼  每天凌晨自动
 Forgetting Agent 清理不再需要的记忆 → 归档
@@ -249,6 +254,14 @@ memory-os ingest "Docker 多阶段构建怎么做" --output "使用 builder stag
 memory-os search "agent 通信方案"              # 自动选择路径
 memory-os search "vector database" --mode vector  # 纯语义搜索
 memory-os search "mem-sem-20260512-001" --mode exact  # 精确 ID
+memory-os search "推理链" --mode traceback       # 推理回溯搜索
+
+# 工作记忆管理
+memory-os wm list                                # 列出所有槽位
+memory-os wm promote --memory-id mem-xxx --name "分析任务"  # 提升到工作记忆
+memory-os wm update --slot-id 1 --content "新内容"           # 更新槽位
+memory-os wm conclude --slot-id 1                            # 结束槽位（检测推理链）
+memory-os wm evict --slot-id 1                               # 踢出槽位
 
 # 全量记忆列表（分页/过滤）
 memory-os list                                 # 列出所有记忆
@@ -290,6 +303,7 @@ memory-os canvas heatmap --output heatmap.json # 强度热力图数据
 | `get_memory_stats` | 记忆库统计 | — |
 | `get_vault_health` | 系统健康检查 | — |
 | `trigger_agent` | 手动触发 Agent | agent (consolidation/forgetting/meta_cognition/review) |
+| `working_memory` | 工作记忆槽位管理 | action (list/promote/update/evict/conclude), slot_id, memory_id, name, content |
 | `get_canvas_graph` | 记忆图谱数据 | status |
 | `get_canvas_heatmap` | 强度热力图数据 | — |
 
@@ -310,8 +324,8 @@ memory-os canvas heatmap --output heatmap.json # 强度热力图数据
 ├── _working/                      # 工作记忆槽位（≤9 个 .md）
 ├── _memory/
 │   ├── semantic/                  # 语义记忆（知识/概念）
-│   ├── episodic/                  # 情景记忆（按日期的日志）
-│   ├── procedural/                # 程序记忆（流程/模板/技能）
+│   ├── episodic/                  # 情景记忆（按日期的日志+每日复盘 review-*.md）
+│   ├── procedural/                # 程序记忆（流程/模板/技能 + 推理链 trace-*.md）
 │   └── archive/                   # 归档（保留文件，不在活跃索引）
 ├── _vectors/                      # LanceDB 向量索引
 │   ├── semantic.lance/
@@ -322,6 +336,8 @@ memory-os canvas heatmap --output heatmap.json # 强度热力图数据
 │   ├── index.md                   # 全局记忆索引
 │   ├── strength-matrix.md         # 强度评分表
 │   ├── gaps.md                    # 知识缺口记录
+│   ├── cognitive-conflicts.md     # 认知冲突日志
+│   ├── token-usage.jsonl          # Token 消耗记录
 │   ├── health-report.md           # 最新健康报告
 │   └── system-config.yaml         # 系统配置
 ├── _agent-logs/                   # Agent 操作审计日志

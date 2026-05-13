@@ -57,7 +57,7 @@ async def cmd_ingest(args):
     vault = Path(args.vault)
     config = load_config(vault)
     memory = MemoryService(vault, config)
-    llm = LLMService(config)
+    llm = LLMService(config, vault_path=vault)
     gateway = SensoryGateway(memory, llm, vault)
 
     node = await gateway.ingest(args.text, "cli", output=args.output)
@@ -74,7 +74,7 @@ async def cmd_search(args):
     vault = Path(args.vault)
     config = load_config(vault)
     memory = MemoryService(vault, config)
-    llm = LLMService(config)
+    llm = LLMService(config, vault_path=vault)
     agent = RetrievalAgent(memory, llm, vault)
 
     results = await agent.search(args.query, strategy=SearchStrategy.VECTOR)
@@ -91,7 +91,7 @@ async def cmd_list(args):
     vault = Path(args.vault)
     config = load_config(vault)
     memory = MemoryService(vault, config)
-    llm = LLMService(config)
+    llm = LLMService(config, vault_path=vault)
     agent = RetrievalAgent(memory, llm, vault)
 
     result = await agent.list_all(
@@ -116,7 +116,7 @@ async def cmd_similar(args):
     vault = Path(args.vault)
     config = load_config(vault)
     memory = MemoryService(vault, config)
-    llm = LLMService(config)
+    llm = LLMService(config, vault_path=vault)
     agent = RetrievalAgent(memory, llm, vault)
 
     results = await agent.search_by_id(args.memory_id, top_k=args.top_k)
@@ -136,7 +136,7 @@ async def cmd_review(args):
     vault = Path(args.vault)
     config = load_config(vault)
     memory = MemoryService(vault, config)
-    llm = LLMService(config)
+    llm = LLMService(config, vault_path=vault)
     agent = ReviewAgent(memory, llm, vault, config)
 
     report = await agent.run(target_date=args.date)
@@ -148,6 +148,65 @@ async def cmd_review(args):
         print(f"关键结论 ({len(report.key_decisions)} 条)")
     if report.narrative:
         print(f"\n{report.narrative}")
+
+
+async def cmd_wm(args):
+    from memory_os.config.loader import load_config
+    from memory_os.llm.service import LLMService
+    from memory_os.memory.service import MemoryService
+    from memory_os.agents.working_memory import WorkingMemoryManager
+
+    vault = Path(args.vault)
+    config = load_config(vault)
+    memory = MemoryService(vault, config)
+    llm = LLMService(config, vault_path=vault)
+    wm = WorkingMemoryManager(memory, config, vault, llm)
+
+    if args.action == "list":
+        slots = await wm.list_slots()
+        if not slots:
+            print(f"工作记忆槽位为空 (最大 {wm.max_slots} 个)")
+            return
+        print(f"工作记忆槽位 ({len(slots)}/{wm.max_slots}):")
+        for s in slots:
+            print(f"  [slot {s['slot_id']}] {s['slot_name']} ops:{s['operation_count']} pinned:{s['pinned']}")
+
+    elif args.action == "promote":
+        if not args.memory_id:
+            print("错误: promote 需要 --memory-id/-m 参数")
+            return
+        slot_id = await wm.promote_to_slot(args.memory_id, args.name or "untitled")
+        print(f"已提升到槽位 {slot_id}: {args.name or args.memory_id}")
+
+    elif args.action == "update":
+        if args.slot_id is None:
+            print("错误: update 需要 --slot-id/-s 参数")
+            return
+        ok = await wm.update_slot(args.slot_id, args.content or "")
+        print(f"槽位 {args.slot_id} 已更新" if ok else f"槽位 {args.slot_id} 不存在")
+
+    elif args.action == "evict":
+        if args.slot_id is None:
+            print("错误: evict 需要 --slot-id/-s 参数")
+            return
+        slot = await wm.get_slot(args.slot_id)
+        if slot is None:
+            print(f"槽位 {args.slot_id} 不存在")
+            return
+        await wm._evict(slot)
+        print(f"槽位 {args.slot_id} 已逐出")
+
+    elif args.action == "conclude":
+        if args.slot_id is None:
+            print("错误: conclude 需要 --slot-id/-s 参数")
+            return
+        trace = await wm.conclude_slot(args.slot_id)
+        if trace:
+            print(f"推理链已保存: {trace.title}")
+            print(f"步骤: {len(trace.steps)} 步")
+            print(f"结论: {trace.conclusion}")
+        else:
+            print(f"槽位 {args.slot_id} 已结束，未检测到推理链")
 
 
 def main():
@@ -183,6 +242,14 @@ def main():
     p_review.add_argument("--date", "-d", help="要复盘的日期 (YYYY-MM-DD)，默认昨日")
     p_review.add_argument("--vault", default=str(Path.home() / "memory-vault"))
 
+    p_wm = sub.add_parser("wm", help="管理工作记忆槽位")
+    p_wm.add_argument("action", choices=["list", "promote", "update", "evict", "conclude"])
+    p_wm.add_argument("--slot-id", "-s", type=int, help="槽位 ID")
+    p_wm.add_argument("--memory-id", "-m", help="记忆 ID（promote 需要）")
+    p_wm.add_argument("--name", "-n", help="槽位名称（promote 需要）")
+    p_wm.add_argument("--content", "-c", help="新内容（update 需要）")
+    p_wm.add_argument("--vault", default=str(Path.home() / "memory-vault"))
+
     p_tui = sub.add_parser("tui", help="启动 Textual TUI")
     p_tui.add_argument("--vault", default=str(Path.home() / "memory-vault"))
     p_tui.add_argument("--backend", choices=["textual", "prompt"], default="textual")
@@ -211,6 +278,8 @@ def main():
         asyncio.run(cmd_similar(args))
     elif args.command == "review":
         asyncio.run(cmd_review(args))
+    elif args.command == "wm":
+        asyncio.run(cmd_wm(args))
     elif args.command == "tui":
         if args.backend == "textual":
             from memory_os.tui.textual_app import main as tui_main
@@ -250,7 +319,7 @@ def main():
 
         config = load_config(vault_path)
         memory = MemoryService(vault_path, config)
-        llm = LLMService(config)
+        llm = LLMService(config, vault_path=vault)
         sched = AgentScheduler(vault_path, config, memory, llm)
         sched.setup_default_jobs()
         async def _run():

@@ -4,6 +4,8 @@ import asyncio
 
 import structlog
 
+from pathlib import Path
+
 from memory_os.config import Provider
 from memory_os.config.models import SystemConfig
 from memory_os.llm.anthropic_adapter import AnthropicChatAdapter
@@ -11,6 +13,7 @@ from memory_os.llm.base import BaseChatAdapter, BaseEmbeddingAdapter
 from memory_os.llm.embedding import build_embedding_adapter
 from memory_os.llm.models import UnifiedChatRequest, UnifiedChatResponse
 from memory_os.llm.openai_adapter import OpenAIChatAdapter
+from memory_os.llm.token_tracker import TokenRecord, TokenTracker
 
 logger = structlog.get_logger(__name__)
 
@@ -21,13 +24,14 @@ def _iter_chunks(lst: list, n: int):
 
 
 class LLMService:
-    def __init__(self, config: SystemConfig):
+    def __init__(self, config: SystemConfig, vault_path: Path | None = None):
         self.config = config
         self.chat_adapter = self._build_chat_adapter(config.llm.chat)
         self.fallback_adapter = (
             self._build_chat_adapter(config.llm.fallback) if config.llm.fallback else None
         )
         self.embedding_adapter = build_embedding_adapter(config.llm.embedding)
+        self.token_tracker = TokenTracker(vault_path) if vault_path else None
 
     def _build_chat_adapter(self, cfg) -> BaseChatAdapter:
         if cfg.provider in (Provider.OPENAI, Provider.OPENAI_COMPATIBLE):
@@ -58,7 +62,9 @@ class LLMService:
         last_error = None
         for attempt in range(self.config.llm.chat.retry_max + 1):
             try:
-                return await self.chat_adapter.chat(request)
+                resp = await self.chat_adapter.chat(request)
+                self._log_tokens(resp, agent_name or "unknown")
+                return resp
             except Exception as exc:
                 last_error = exc
                 logger.warning("llm_chat_retry", attempt=attempt, error=str(exc))
@@ -67,9 +73,23 @@ class LLMService:
 
         if self.fallback_adapter:
             logger.info("llm_fallback_used")
-            return await self.fallback_adapter.chat(request)
+            resp = await self.fallback_adapter.chat(request)
+            self._log_tokens(resp, agent_name or "unknown")
+            return resp
 
         raise last_error or RuntimeError("LLM chat failed with no fallback")
+
+    def _log_tokens(self, resp: UnifiedChatResponse, agent_name: str) -> None:
+        if self.token_tracker is None:
+            return
+        from datetime import datetime, timezone
+        self.token_tracker.log(TokenRecord(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            agent_name=agent_name,
+            model=resp.model,
+            input_tokens=resp.input_tokens,
+            output_tokens=resp.output_tokens,
+        ))
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         batch_size = self.config.llm.embedding.batch_size
