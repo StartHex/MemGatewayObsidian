@@ -288,6 +288,10 @@ class RetrievalAgent:
         from memory_os.vault.frontmatter import parse_memory as _parse
 
         dirs = []
+        if type_filter in ("all", "raw_input"):
+            dirs.append(self.vault_path / "_inbox")
+        if type_filter in ("all", "working_slot"):
+            dirs.append(self.vault_path / "_working")
         if type_filter in ("all", "semantic"):
             dirs.append(self.vault_path / "_memory" / "semantic")
         if type_filter in ("all", "episodic"):
