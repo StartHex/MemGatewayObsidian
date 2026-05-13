@@ -166,12 +166,21 @@ async def get_stats():
                     fading += 1
             except Exception:
                 continue
-    # Also count inbox
-    inbox_files = await list_directory(vault_path / "_inbox", "*.md")
-    total += len(inbox_files)
+    # Count inbox items (raw=unprocessed pending, active=already consolidated)
+    inbox_pending = 0
+    inbox_dir = vault_path / "_inbox"
+    if inbox_dir.exists():
+        for f in await list_directory(inbox_dir, "*.md"):
+            try:
+                node = await parse_memory(f)
+                total += 1
+                if node.status.value == "raw":
+                    inbox_pending += 1
+            except Exception:
+                continue
     return {
         "active": active, "fading": fading, "total": total,
-        "inbox_pending": len(inbox_files),
+        "inbox_pending": inbox_pending,
     }
 
 
@@ -203,6 +212,9 @@ async def trigger_agent(req: TriggerAgentRequest):
     elif req.agent == "review":
         from memory_os.agents.review import ReviewAgent
         agent = ReviewAgent(memory, llm, vault_path, config)
+    elif req.agent == "supervisor":
+        from memory_os.agents.supervisor import SystemSupervisor
+        agent = SystemSupervisor(memory, vault_path, config)
     else:
         raise HTTPException(400, f"Unknown agent: {req.agent}")
     return await agent.run()
@@ -338,6 +350,28 @@ async def working_memory_action(action: str, request: dict | None = None):
         trace = await wm.conclude_slot(int(args.get("slot_id", 0)))
         return trace.model_dump() if trace else {"trace": None}
     raise HTTPException(400, f"Unknown action: {action}")
+
+
+# ── System Supervisor ───────────────────────────────────────────
+
+@app.get("/api/v1/system/alerts")
+async def get_alerts():
+    """Return latest alerts.md content with parsed severity level."""
+    vault_path = _get_services()[0]
+    alerts_path = vault_path / "_meta" / "alerts.md"
+    if not alerts_path.exists():
+        return {"level": "OK", "content": "", "file_exists": False}
+
+    content = alerts_path.read_text(encoding="utf-8")
+    # Parse severity from content
+    level = "OK"
+    if "CRITICAL" in content:
+        level = "CRITICAL"
+    elif "ACTION" in content:
+        level = "ACTION"
+    elif "WARNING" in content:
+        level = "WARNING"
+    return {"level": level, "content": content, "file_exists": True}
 
 
 # ── Hot Cache ────────────────────────────────────────────────────

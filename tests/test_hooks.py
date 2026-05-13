@@ -32,11 +32,12 @@ class TestSessionStartHook:
 
         mod = _load_hook_module("session_start_hook")
 
-        # Mock _api to return pre-created content
-        captured = {}
+        # Mock _api to return pre-created content and empty alerts
+        calls = []
         def mock_api(method, path):
-            captured["method"] = method
-            captured["path"] = path
+            calls.append({"method": method, "path": path})
+            if "alerts" in path:
+                return {"level": "OK", "content": "", "file_exists": False}
             return {"content": "# Hot Context\n## Active Memories (3)\n- [[mem-1|Test]] (strength: 80)", "generated": False}
         monkeypatch.setattr(mod, "_api", mock_api)
 
@@ -48,8 +49,8 @@ class TestSessionStartHook:
 
         assert "MEMORY OS CONTEXT" in output
         assert "Active Memories" in output
-        assert captured["method"] == "GET"
-        assert captured["path"] == "/api/v1/system/hot"
+        assert calls[0]["path"] == "/api/v1/system/hot"
+        assert calls[1]["path"] == "/api/v1/system/alerts"
 
     def test_handles_empty_vault(self, monkeypatch):
         """空 vault 时不崩溃。"""

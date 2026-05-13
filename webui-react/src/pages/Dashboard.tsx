@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({ active: 0, fading: 0, total: 0, inbox_pending: 0 });
+  const [alerts, setAlerts] = useState<{ level: string; content: string; file_exists: boolean } | null>(null);
   const [captureText, setCaptureText] = useState('');
   const [captureOutput, setCaptureOutput] = useState('');
   const [captureStatus, setCaptureStatus] = useState('');
@@ -9,8 +10,12 @@ export default function Dashboard() {
 
   const fetchStats = async () => {
     try {
-      const resp = await fetch('/api/v1/system/stats');
-      setStats(await resp.json());
+      const [statsResp, alertsResp] = await Promise.all([
+        fetch('/api/v1/system/stats'),
+        fetch('/api/v1/system/alerts'),
+      ]);
+      setStats(await statsResp.json());
+      setAlerts(await alertsResp.json());
     } catch (e) {
       console.error(e);
     }
@@ -68,6 +73,22 @@ export default function Dashboard() {
         </button>
       </div>
 
+      {/* Alerts panel */}
+      {alerts && alerts.file_exists && alerts.level !== 'OK' && (
+        <div className="card mb-4" style={{
+          borderColor: alerts.level === 'CRITICAL' ? '#ef4444' : alerts.level === 'ACTION' ? '#eab308' : '#3b82f6',
+          background: alerts.level === 'CRITICAL' ? 'rgba(239,68,68,0.08)' : alerts.level === 'ACTION' ? 'rgba(234,179,8,0.08)' : 'rgba(59,130,246,0.06)',
+        }}>
+          <div className="text-xs font-bold mb-1"
+            style={{ color: alerts.level === 'CRITICAL' ? '#ef4444' : alerts.level === 'ACTION' ? '#eab308' : '#3b82f6' }}>
+            ⚠️ 系统提醒 ({alerts.level})
+          </div>
+          <pre className="text-xs" style={{ color: '#9ca3af', whiteSpace: 'pre-wrap', margin: 0, background: 'transparent' }}>
+            {alerts.content.replace(/^#.*\n/, '').trim()}
+          </pre>
+        </div>
+      )}
+
       {/* Stats cards */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="stat-card">
@@ -97,6 +118,7 @@ export default function Dashboard() {
             { key: 'forgetting', label: '遗忘清理' },
             { key: 'meta_cognition', label: '健康检查' },
             { key: 'review', label: '每日复盘' },
+            { key: 'supervisor', label: '系统巡检' },
           ].map(a => (
             <button
               key={a.key}
