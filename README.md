@@ -43,7 +43,7 @@ Memory OS 用工程手段逐个映射：
        ▼                             ▼                             ▼
 ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐
 │ A1 Sensory   │  │ A2 Working   │  │ A3 Consoli-  │  │ A4 Retrieval     │
-│ Gateway      │─▶│ Memory       │─▶│ dation       │  │ (6 路径检索)     │
+│ Gateway      │─▶│ Memory       │─▶│ dation       │  │ (7 路径检索)     │
 │ 感官门控      │  │ 工作记忆管理  │  │ 巩固代理      │  │                  │
 └──────────────┘  └──────────────┘  └──────┬───────┘  └──────────────────┘
                                            │
@@ -61,14 +61,6 @@ Memory OS 用工程手段逐个映射：
                  │ 遗忘管理      │  │ 每日复盘      │  │ Cognition        │
                  │              │  │              │  │ 元认知监控        │
                  └──────────────┘  └──────────────┘  └──────────────────┘
-                        │                  │                      │
-                        └──────────────────┼──────────────────────┘
-                                           │
-                                           ▼
-                                    ┌──────────────┐
-                                    │ 4x Canvas    │
-                                    │ 可视化面板    │
-                                    └──────────────┘
 ```
 
 **七个 Agent 各自独立运行，通过 Obsidian vault 文件系统异步通信。**
@@ -78,7 +70,7 @@ Memory OS 用工程手段逐个映射：
 | **Sensory Gateway** | 丘脑+感觉皮层 | 实时 | 接收所有输入（支持 input+output 对）→去重→分类→写 `_inbox/` |
 | **Working Memory Manager** | 前额叶 | 实时 | 维护 ≤7 个活跃槽位，记录操作日志，LLM 检测推理链→保存为程序记忆 trace |
 | **Consolidation Agent** | 海马体→新皮层 | 每4h / inbox≥20 | 从 Q&A 对提炼语义+程序记忆+情景日志；检测新旧记忆矛盾→标记冲突 |
-| **Retrieval Agent** | 前额叶+颞叶 | 按需 | 7 条检索路径（含推理回溯），向量语义为默认主路径，支持列表+按ID相似搜索 |
+| **Retrieval Agent** | 前额叶+颞叶 | 按需 | 7 条检索路径（精确ID→关键词→向量→图谱→时间线→上下文→推理回溯），向量语义为默认主路径，支持分页列表+按ID相似搜索 |
 | **Review Agent** | 前额叶+默认模式网络 | 每日上午 8:57 | 回顾昨日记忆活动，LLM 生成复盘报告（话题/决策/缺口/连接/行动建议+Token 消耗） |
 | **Forgetting Agent** | 前额叶抑制 | 每日凌晨3点 | 计算强度衰减→分级归档→向量关联清理 |
 | **Meta-Cognition Agent** | 前扣带皮层 | 每周一早9点 | 健康报告+缺口发现+认知冲突统计+向量一致性校验+调参建议 |
@@ -213,8 +205,8 @@ llm:
 |---|---|---|---|
 | 安装 | 克隆仓库后 `uv sync --extra gui` | 克隆仓库后 `uv sync --extra tui` | 内置 |
 | 启动 | 桌面应用（Tauri 构建） | `memory-os tui` | `memory-os web` |
-| 适用场景 | 桌面常驻 / 全局快捷键 | SSH 远程 / vim 用户 | 可视化 / 跨设备 |
-| Canvas | 内嵌 WebView（完整） | ASCII 降级 | 完整 D3.js / ECharts |
+| 适用场景 | 桌面常驻 / 全局快捷键 | SSH 远程 / vim 用户 | 浏览器跨设备访问 |
+| 功能 | 内嵌 WebView（完整） | 终端全功能 | React 完整 Dark 主题 |
 
 三种客户端可同时运行，连接同一个 vault。
 
@@ -421,10 +413,6 @@ memory-os health                               # 最新健康报告
 memory-os agent run consolidation              # 立即巩固所有 pending 输入
 memory-os agent run forgetting                 # 立即运行遗忘扫描
 memory-os agent run review                     # 立即触发记忆复盘
-
-# Canvas 数据导出
-memory-os canvas graph --output graph.json     # 记忆图谱数据
-memory-os canvas heatmap --output heatmap.json # 强度热力图数据
 ```
 
 ### MCP 工具（Claude Code 集成）
@@ -443,20 +431,19 @@ memory-os canvas heatmap --output heatmap.json # 强度热力图数据
 | `get_vault_health` | 系统健康检查 | — |
 | `trigger_agent` | 手动触发 Agent | agent (consolidation/forgetting/meta_cognition/review) |
 | `working_memory` | 工作记忆槽位管理 | action (list/promote/update/evict/conclude), slot_id, memory_id, name, content |
-| `get_canvas_graph` | 记忆图谱数据 | status |
-| `get_canvas_heatmap` | 强度热力图数据 | — |
 | `get_hot_context` | 获取 hot.md 上下文 | — |
 | `update_hot_context` | 刷新 hot.md | — |
 | `validate_memory_file` | 验证 .md 文件 | file_path |
 
-### 四张可视化 Canvas
+### WebUI 页面
 
-在 WebUI 或 GUI 中打开：
+1. **Dashboard（概览）** — 记忆统计卡片 + Agent 手动触发按钮 + 快速记录
+2. **Browse（全部）** — 全部记忆列表，按类型过滤（全部/对话/记忆/情景），文本搜索，点击查看完整内容，完整分页
+3. **Working Memory（工作记忆）** — 槽位管理，支持 Promote / Update / Evict / Conclude
+4. **Review（复盘）** — 查看和触发每日记忆复盘报告
+5. **Health（健康检查）** — 系统自检报告，缺口发现，冲突统计
 
-1. **记忆图谱（Memory Graph）** — 力导向图展示记忆节点和 wikilinks 关联，节点越大表示记忆越强
-2. **强度热力图（Strength Heatmap）** — treemap 显示所有记忆的健康状况，绿→黄→红随衰减变化
-3. **时间线（Episodic Timeline）** — 按天/周/月浏览情景记忆，支持情绪标记过滤
-4. **向量投影（Vector Projection）** — UMAP 降维到 2D，直观看到知识簇的分布和漂移
+> 可视化（图谱 / 热力图 / 时间线 / 向量投影）可通过 Obsidian Graph View 直接查看 vault 中的 wikilinks 图谱。
 
 ## Vault 目录结构
 
@@ -473,7 +460,6 @@ memory-os canvas heatmap --output heatmap.json # 强度热力图数据
 │   ├── semantic.lance/
 │   ├── episodic.lance/
 │   └── procedural.lance/
-├── _canvas/                       # Canvas 缓存数据
 ├── _meta/                         # 系统元数据
 │   ├── index.md                   # 全局记忆索引
 │   ├── hot.md                     # 会话热缓存（跨会话记忆快照）
@@ -507,7 +493,7 @@ memory-os canvas heatmap --output heatmap.json # 强度热力图数据
 |---|---|---|---|
 | 整理方式 | Agent 自动分类+链接 | 手动整理 | chunk 切片，无语义结构 |
 | 遗忘 | 主动衰减+归档 | 只增不减 | 无遗忘机制 |
-| 检索 | 6 条互补路径 | 全文搜索 | 仅向量相似度 |
+| 检索 | 7 条互补路径 | 全文搜索 | 仅向量相似度 |
 | 元认知 | 健康报告+缺口检测+调参建议 | 无 | 无 |
 | 原始追溯 | `_inbox/` 不可变 | 修改即覆盖 | 无 provenance |
 | 每日复盘 | 自动回顾+LLM 生成报告 | 无 | 无 |
@@ -516,4 +502,22 @@ memory-os canvas heatmap --output heatmap.json # 强度热力图数据
 ## 相关文档
 
 - [系统设计文档](../memory-system-design.md) — 人脑记忆分析 + 完整架构设计（九章）
-- [详细实现规格](../memory-system-detail-design.md) — 15 个模块的接口、数据模型、测试清单
+
+## 最近更新 (2026-05)
+
+### WebUI 增强
+- **全部记忆（Browse）** — 按类型标签过滤（全部/对话/记忆/情景），文本搜索，点击查看完整详情（MemoryDetail 模态窗），完整分页（每页 10/20/50/100 条，页码导航，首/前/后/末页）
+- **概览（Dashboard）** — 精简设计：统计卡片 + Agent 手动触发 + 快速记录（支持 input+output 对），所有文案中文化
+
+### Canvas 已移除
+Canvas 可视化面板（MemoryGraph / Heatmap / Timeline / VectorProj）已从前端和后端 API 移除。用户如需可视化，可在 Obsidian Graph View 中直接查看 wikilinks 图谱。
+
+### 后端修复
+- `list_all` 修复：现在正确扫描 `_inbox/`（对话）和 `_working/`（工作区）目录，不再遗漏记录
+- CORS 已启用，支持局域网跨设备访问
+
+### 5-Hook 生命周期 + Hot Cache
+- SessionStart → UserPromptSubmit → PostToolUse → PreCompact → Stop 全流程覆盖
+- `hot.md` 热缓存实现跨会话记忆无缝衔接
+- 分级 Token 加载策略（Always / On-demand / Triggered / Rare）
+
