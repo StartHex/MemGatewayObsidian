@@ -20,14 +20,6 @@ const TYPE_LABELS: Record<string, string> = {
   working_slot: '工作区',
 };
 
-const TYPE_ORDER: Record<string, number> = {
-  raw_input: 0,
-  semantic: 1,
-  episodic: 2,
-  procedural: 3,
-  working_slot: 4,
-};
-
 const FILTERS = [
   { key: 'all', label: '全部' },
   { key: 'raw_input', label: '对话' },
@@ -35,14 +27,16 @@ const FILTERS = [
   { key: 'episodic', label: '情景' },
 ];
 
+const PAGE_SIZES = [10, 20, 50, 100];
+
 export default function Browse() {
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const [detailId, setDetailId] = useState<string | null>(null);
-  const PAGE_SIZE = 30;
 
   const fetchAll = async () => {
     setLoading(true);
@@ -70,15 +64,20 @@ export default function Browse() {
     );
   });
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const pageItems = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.ceil(filtered.length / pageSize);
+  const pageItems = filtered.slice(page * pageSize, (page + 1) * pageSize);
 
-  const typeBadgeClass = (type: string) => {
-    switch (type) {
-      case 'raw_input': return 'badge' + ' ' + 'text-xs px-2 py-0.5 rounded';
-      case 'semantic': return 'badge' + ' ' + 'text-xs px-2 py-0.5 rounded';
-      default: return 'badge' + ' ' + 'text-xs px-2 py-0.5 rounded';
-    }
+  // Reset to page 0 when filter/search/pageSize changes
+  const setFilter = (key: string) => { setTypeFilter(key); setPage(0); };
+  const setSearch = (q: string) => { setQuery(q); setPage(0); };
+  const setSize = (n: number) => { setPageSize(n); setPage(0); };
+
+  const pageNumbers = (): number[] => {
+    const pages: number[] = [];
+    const start = Math.max(0, page - 2);
+    const end = Math.min(totalPages - 1, page + 2);
+    for (let i = start; i <= end; i++) pages.push(i);
+    return pages;
   };
 
   return (
@@ -91,7 +90,7 @@ export default function Browse() {
           onClick={fetchAll}
           disabled={loading}
         >
-          {loading ? 'Loading...' : 'Refresh'}
+          {loading ? '加载中...' : '刷新'}
         </button>
       </div>
 
@@ -105,7 +104,7 @@ export default function Browse() {
             <button
               key={f.key}
               className="btn btn-sm"
-              onClick={() => { setTypeFilter(f.key); setPage(0); }}
+              onClick={() => setFilter(f.key)}
               style={{
                 background: typeFilter === f.key ? '#3b82f6' : '#1f2937',
                 color: typeFilter === f.key ? '#fff' : '#9ca3af',
@@ -124,48 +123,63 @@ export default function Browse() {
         <input
           placeholder="搜索记忆..."
           value={query}
-          onChange={e => { setQuery(e.target.value); setPage(0); }}
+          onChange={e => setSearch(e.target.value)}
           style={{ width: '100%' }}
         />
       </div>
 
+      {/* Pagination top */}
+      <div className="flex justify-between items-center mb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">
+            共 {filtered.length} 条
+            {query && ` — 搜索: "${query}"`}
+          </span>
+          <select
+            value={pageSize}
+            onChange={e => setSize(Number(e.target.value))}
+            style={{ fontSize: '11px', padding: '2px 6px', width: 'auto' }}
+          >
+            {PAGE_SIZES.map(n => (
+              <option key={n} value={n}>{n}条/页</option>
+            ))}
+          </select>
+        </div>
+        {totalPages > 1 && (
+          <div className="flex items-center gap-1">
+            <button className="btn btn-sm" style={{ background: '#374151', color: '#e1e2ea' }}
+              disabled={page === 0} onClick={() => setPage(0)}>«</button>
+            <button className="btn btn-sm" style={{ background: '#374151', color: '#e1e2ea' }}
+              disabled={page === 0} onClick={() => setPage(p => p - 1)}>‹</button>
+            {pageNumbers().map(i => (
+              <button
+                key={i}
+                className="btn btn-sm"
+                onClick={() => setPage(i)}
+                style={{
+                  background: page === i ? '#3b82f6' : '#374151',
+                  color: page === i ? '#fff' : '#e1e2ea',
+                  minWidth: '32px',
+                }}
+              >
+                {i + 1}
+              </button>
+            ))}
+            <button className="btn btn-sm" style={{ background: '#374151', color: '#e1e2ea' }}
+              disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>›</button>
+            <button className="btn btn-sm" style={{ background: '#374151', color: '#e1e2ea' }}
+              disabled={page >= totalPages - 1} onClick={() => setPage(totalPages - 1)}>»</button>
+          </div>
+        )}
+      </div>
+
       {/* Results */}
       <div className="card">
-        <div className="flex justify-between items-center mb-2">
-          <span className="text-xs text-gray-500">
-            {filtered.length} results
-            {query && ` for "${query}"`}
-          </span>
-          {totalPages > 1 && (
-            <div className="flex gap-1">
-              <button
-                className="btn btn-sm"
-                style={{ background: '#374151', color: '#e1e2ea' }}
-                disabled={page === 0}
-                onClick={() => setPage(p => p - 1)}
-              >
-                Prev
-              </button>
-              <span className="text-xs text-gray-500 self-center px-2">
-                {page + 1}/{totalPages}
-              </span>
-              <button
-                className="btn btn-sm"
-                style={{ background: '#374151', color: '#e1e2ea' }}
-                disabled={page >= totalPages - 1}
-                onClick={() => setPage(p => p + 1)}
-              >
-                Next
-              </button>
-            </div>
-          )}
-        </div>
-
         {loading ? (
-          <p className="text-gray-500 text-sm py-8 text-center">Loading...</p>
+          <p className="text-gray-500 text-sm py-8 text-center">加载中...</p>
         ) : pageItems.length === 0 ? (
           <p className="text-gray-500 text-sm py-8 text-center">
-            {memories.length === 0 ? 'No memories yet. Start a conversation to build your memory vault.' : 'No matches.'}
+            {memories.length === 0 ? '暂无记录，开始对话即可自动记录。' : '无匹配结果。'}
           </p>
         ) : (
           <div className="space-y-1">
@@ -177,15 +191,10 @@ export default function Browse() {
                 style={{ cursor: 'pointer' }}
               >
                 <span style={{
-                  display: 'inline-block',
-                  fontSize: '11px',
-                  padding: '1px 6px',
-                  borderRadius: '4px',
+                  display: 'inline-block', fontSize: '11px', padding: '1px 6px',
+                  borderRadius: '4px', flexShrink: 0, marginTop: '1px',
                   background: m.type === 'raw_input' ? '#1e40af20' : '#065f4620',
                   color: m.type === 'raw_input' ? '#60a5fa' : '#34d399',
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                  marginTop: '1px',
                 }}>
                   {TYPE_LABELS[m.type] || m.type}
                 </span>
@@ -196,9 +205,8 @@ export default function Browse() {
                   {m.tags && m.tags.length > 0 && (
                     <div className="flex gap-1 mt-1 flex-wrap">
                       {m.tags.slice(0, 5).map(t => (
-                        <span key={t} className="text-xs px-1.5 py-0 rounded" style={{ background: '#1f2937', color: '#6b7280' }}>
-                          {t}
-                        </span>
+                        <span key={t} className="text-xs px-1.5 py-0 rounded"
+                          style={{ background: '#1f2937', color: '#6b7280' }}>{t}</span>
                       ))}
                     </div>
                   )}
@@ -211,6 +219,31 @@ export default function Browse() {
           </div>
         )}
       </div>
+
+      {/* Pagination bottom */}
+      {totalPages > 1 && (
+        <div className="flex justify-center items-center gap-1 mt-3">
+          <button className="btn btn-sm" style={{ background: '#374151', color: '#e1e2ea' }}
+            disabled={page === 0} onClick={() => setPage(0)}>«</button>
+          <button className="btn btn-sm" style={{ background: '#374151', color: '#e1e2ea' }}
+            disabled={page === 0} onClick={() => setPage(p => p - 1)}>‹</button>
+          {pageNumbers().map(i => (
+            <button
+              key={i} className="btn btn-sm"
+              onClick={() => setPage(i)}
+              style={{
+                background: page === i ? '#3b82f6' : '#374151',
+                color: page === i ? '#fff' : '#e1e2ea',
+                minWidth: '32px',
+              }}
+            >{i + 1}</button>
+          ))}
+          <button className="btn btn-sm" style={{ background: '#374151', color: '#e1e2ea' }}
+            disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>›</button>
+          <button className="btn btn-sm" style={{ background: '#374151', color: '#e1e2ea' }}
+            disabled={page >= totalPages - 1} onClick={() => setPage(totalPages - 1)}>»</button>
+        </div>
+      )}
 
       {detailId && <MemoryDetail memoryId={detailId} onClose={() => setDetailId(null)} />}
     </div>
