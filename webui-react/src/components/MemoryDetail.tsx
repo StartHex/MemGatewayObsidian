@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
 
 interface MemoryFull {
   id: string;
@@ -16,6 +17,19 @@ interface MemoryFull {
   retrieval_count?: number;
   file_path?: string;
   conflict?: boolean;
+  raw_input_ref?: string;
+  raw_output?: string;
+  links_to?: string[];
+  links_from?: string[];
+  output?: string;
+}
+
+interface SimilarItem {
+  id: string;
+  title: string;
+  type: string;
+  content: string;
+  score: number;
 }
 
 interface Props {
@@ -41,12 +55,18 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function MemoryDetail({ memoryId, onClose }: Props) {
   const [mem, setMem] = useState<MemoryFull | null>(null);
+  const [similar, setSimilar] = useState<SimilarItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/v1/memories/${memoryId}`)
-      .then(r => r.json())
-      .then(setMem)
+    Promise.all([
+      fetch(`/api/v1/memories/${memoryId}`).then(r => r.json()),
+      fetch(`/api/v1/memories/${memoryId}/similar?top_k=5`).then(r => r.json()).catch(() => []),
+    ])
+      .then(([memData, simData]) => {
+        setMem(memData);
+        setSimilar(simData.items || simData || []);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [memoryId]);
@@ -63,14 +83,14 @@ export default function MemoryDetail({ memoryId, onClose }: Props) {
         onClick={e => e.stopPropagation()}
         style={{
           background: 'var(--bg-card)', borderRadius: '12px',
-          maxWidth: '720px', width: '90%', maxHeight: '85vh', overflow: 'auto',
+          maxWidth: '780px', width: '92%', maxHeight: '85vh', overflow: 'auto',
           padding: '24px', border: '1px solid var(--border)',
         }}
       >
         {loading ? (
-          <p style={{ color: 'var(--text-secondary)' }}>Loading...</p>
+          <p style={{ color: 'var(--text-secondary)' }}>加载中...</p>
         ) : !mem ? (
-          <p style={{ color: 'var(--text-secondary)' }}>Not found</p>
+          <p style={{ color: 'var(--text-secondary)' }}>未找到该记忆</p>
         ) : (
           <>
             {/* Header */}
@@ -108,16 +128,82 @@ export default function MemoryDetail({ memoryId, onClose }: Props) {
               {mem.title || mem.id}
             </h2>
 
-            {/* Content */}
-            <div style={{
+            {/* Content — rendered as Markdown */}
+            <div className="markdown-body" style={{
               background: 'var(--bg-primary)', borderRadius: '8px',
-              padding: '16px', marginBottom: '16px',
-              whiteSpace: 'pre-wrap', fontSize: '14px',
-              lineHeight: 1.7, color: 'var(--text-primary)',
+              padding: '16px', marginBottom: '12px',
+              fontSize: '14px', lineHeight: 1.7,
               maxHeight: '360px', overflow: 'auto',
             }}>
-              {mem.content || '(no content)'}
+              {mem.content ? (
+                <ReactMarkdown>{mem.content}</ReactMarkdown>
+              ) : (
+                <span style={{ color: 'var(--text-secondary)' }}>(无内容)</span>
+              )}
             </div>
+
+            {/* raw_output (AI response for Q&A pairs) */}
+            {(mem.raw_output || mem.output) && (
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>AI 响应</div>
+                <div className="markdown-body" style={{
+                  background: 'var(--bg-primary)', borderRadius: '8px',
+                  padding: '12px', fontSize: '13px', lineHeight: 1.7,
+                  maxHeight: '260px', overflow: 'auto',
+                  borderLeft: '3px solid var(--accent-green)',
+                }}>
+                  <ReactMarkdown>{String(mem.raw_output || mem.output || '')}</ReactMarkdown>
+                </div>
+              </div>
+            )}
+
+            {/* Similar / derived memories */}
+            {similar.length > 0 && (
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+                  相关记忆 ({similar.length})
+                </div>
+                {similar.filter(s => s.id !== mem.id).slice(0, 3).map(s => (
+                  <div key={s.id} className="markdown-body" style={{
+                    background: 'var(--bg-primary)', borderRadius: '6px',
+                    padding: '10px 12px', marginBottom: '6px',
+                    fontSize: '12px', lineHeight: 1.6,
+                    borderLeft: '2px solid var(--accent-blue)',
+                  }}>
+                    <div style={{
+                      fontSize: '11px', color: '#6b7280', marginBottom: '4px',
+                      display: 'flex', justifyContent: 'space-between',
+                    }}>
+                      <span>
+                        [{TYPE_LABELS[s.type] || s.type}]
+                        {s.title ? ` ${s.title.slice(0, 60)}` : ` ${s.id.slice(-16)}`}
+                      </span>
+                      <span>相关度: {(s.score * 100).toFixed(0)}%</span>
+                    </div>
+                    {s.content && s.content !== mem.content && (
+                      <ReactMarkdown>{s.content.slice(0, 500)}</ReactMarkdown>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Links */}
+            {(mem.links_to && mem.links_to.length > 0) && (
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>关联记忆</div>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {mem.links_to.map(link => (
+                    <span key={link} style={{
+                      fontSize: '11px', padding: '2px 6px', borderRadius: '4px',
+                      background: '#1f2937', color: '#60a5fa', fontFamily: 'monospace',
+                    }}>
+                      {link.replace('[[', '').replace(']]', '').split('/').pop()}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Meta */}
             <div style={{
