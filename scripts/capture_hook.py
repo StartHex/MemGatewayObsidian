@@ -16,7 +16,7 @@ API = os.environ.get("MEMORY_OS_API", "http://127.0.0.1:9090")
 EVENT = os.environ.get("CLAUDE_HOOK_EVENT_TYPE", "unknown")
 
 
-def _api(method: str, path: str, body: dict | None = None) -> dict | None:
+def _api(method: str, path: str, body: dict | None = None, timeout: int = 15) -> dict | None:
     """Call the Memory OS API. Returns parsed JSON or None on failure."""
     url = f"{API}{path}"
     data = json.dumps(body).encode() if body else None
@@ -24,7 +24,7 @@ def _api(method: str, path: str, body: dict | None = None) -> dict | None:
         req = urllib.request.Request(url, data=data, method=method)
         if data:
             req.add_header("Content-Type", "application/json")
-        resp = urllib.request.urlopen(req, timeout=10)
+        resp = urllib.request.urlopen(req, timeout=timeout)
         return json.loads(resp.read())
     except Exception as e:
         print(f"[memory-hook] API call failed: {method} {path}: {e}", file=sys.stderr)
@@ -77,7 +77,7 @@ def main():
         return  # 跳过过短消息
 
     # Step 1: 检索相关记忆并写入 last-context.md
-    search_and_inject(prompt, top_k=3)
+    search_and_inject(prompt, top_k=3)  # uses default 15s timeout
 
     # Step 2: 捕获当前消息到 inbox
     tags = ["cc-connect"]

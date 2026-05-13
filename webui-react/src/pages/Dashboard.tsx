@@ -10,6 +10,14 @@ interface MemoryItem {
   tags: string[];
 }
 
+const TYPE_LABELS: Record<string, string> = {
+  raw_input: '对话',
+  semantic: '记忆',
+  episodic: '情景',
+  procedural: '流程',
+  working_slot: '工作区',
+};
+
 export default function Dashboard() {
   const [stats, setStats] = useState({ active: 0, fading: 0, total: 0, inbox_pending: 0 });
   const [recent, setRecent] = useState<MemoryItem[]>([]);
@@ -22,7 +30,7 @@ export default function Dashboard() {
     try {
       const [statsResp, memsResp] = await Promise.all([
         fetch('/api/v1/system/stats'),
-        fetch('/api/v1/memories?limit=5&sort_by=recent'),
+        fetch('/api/v1/memories?limit=20&sort_by=recent'),
       ]);
       setStats(await statsResp.json());
       const mems = await memsResp.json();
@@ -167,7 +175,7 @@ export default function Dashboard() {
             {recent.map(m => (
               <tr key={m.id}>
                 <td className="font-mono text-xs">{m.id.slice(-16)}</td>
-                <td><span className="badge badge-active">{m.type}</span></td>
+                <td><span className="badge badge-active">{TYPE_LABELS[m.type] || m.type}</span></td>
                 <td>{m.title || m.id}</td>
                 <td>{m.strength.toFixed(0)}</td>
                 <td>

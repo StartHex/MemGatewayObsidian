@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
-import Search from './pages/Search';
+import Browse from './pages/Browse';
 import WorkingMemory from './pages/WorkingMemory';
 import Review from './pages/Review';
 import { HealthReport } from './pages/Health';
@@ -22,17 +22,22 @@ function Sidebar() {
         <span className="text-lg font-bold">Memory OS</span>
         <div className="text-xs text-gray-500 mt-1">v0.1.0</div>
       </div>
-      <NavLink to="/" end className={linkClass}>Dashboard</NavLink>
-      <NavLink to="/search" className={linkClass}>Search</NavLink>
-      <NavLink to="/wm" className={linkClass}>Working Memory</NavLink>
-      <NavLink to="/review" className={linkClass}>Review</NavLink>
-      <div className="mt-4 px-4 py-1 text-xs text-gray-600 uppercase">Canvas</div>
-      <NavLink to="/canvas/graph" className={linkClass}>Memory Graph</NavLink>
-      <NavLink to="/canvas/heatmap" className={linkClass}>Heatmap</NavLink>
-      <NavLink to="/canvas/timeline" className={linkClass}>Timeline</NavLink>
-      <NavLink to="/canvas/projection" className={linkClass}>Vector Projection</NavLink>
-      <div className="mt-4 px-4 py-1 text-xs text-gray-600 uppercase">System</div>
-      <NavLink to="/health" className={linkClass}>Health</NavLink>
+
+      <NavLink to="/" end className={linkClass}>📊 Dashboard 概览</NavLink>
+      <NavLink to="/browse" className={linkClass}>📋 Memories 全部</NavLink>
+
+      <div className="mt-3 px-4 py-1 text-xs text-gray-600 uppercase">工具</div>
+      <NavLink to="/wm" className={linkClass}>🧠 工作记忆</NavLink>
+      <NavLink to="/review" className={linkClass}>📝 复盘报告</NavLink>
+
+      <div className="mt-3 px-4 py-1 text-xs text-gray-600 uppercase">Canvas 可视化</div>
+      <NavLink to="/canvas/graph" className={linkClass}>图谱</NavLink>
+      <NavLink to="/canvas/heatmap" className={linkClass}>热力图</NavLink>
+      <NavLink to="/canvas/timeline" className={linkClass}>时间线</NavLink>
+      <NavLink to="/canvas/projection" className={linkClass}>向量投影</NavLink>
+
+      <div className="mt-3 px-4 py-1 text-xs text-gray-600 uppercase">系统</div>
+      <NavLink to="/health" className={linkClass}>🩺 健康检查</NavLink>
     </nav>
   );
 }
@@ -45,7 +50,8 @@ function App() {
         <main className="flex-1 p-6 overflow-auto">
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/search" element={<Search />} />
+            <Route path="/browse" element={<Browse />} />
+            <Route path="/search" element={<Browse />} />
             <Route path="/wm" element={<WorkingMemory />} />
             <Route path="/review" element={<Review />} />
             <Route path="/canvas/graph" element={<MemoryGraph />} />
