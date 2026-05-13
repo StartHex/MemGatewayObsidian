@@ -136,6 +136,75 @@ def _build_tools() -> list[dict]:
                 "properties": {},
             },
         },
+        {
+            "name": "list_memories",
+            "description": "分页列出所有记忆，支持按类型、状态、标签过滤和排序。适合浏览全部记忆库。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": ["all", "semantic", "episodic", "procedural"],
+                        "description": "记忆类型过滤",
+                        "default": "all",
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["all", "active", "fading", "archived"],
+                        "description": "状态过滤",
+                        "default": "all",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "每页数量，默认 50",
+                        "default": 50,
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "偏移量，用于翻页",
+                        "default": 0,
+                    },
+                    "sort_by": {
+                        "type": "string",
+                        "enum": ["created", "strength", "importance", "recent"],
+                        "description": "排序方式",
+                        "default": "created",
+                    },
+                },
+            },
+        },
+        {
+            "name": "find_similar",
+            "description": "根据记忆 ID 查找语义相似的其他记忆。适合在查看一条记忆后，发现与之相关的知识。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "memory_id": {
+                        "type": "string",
+                        "description": "记忆 ID，如 mem-sem-xxx",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "返回结果数量，默认 5",
+                        "default": 5,
+                    },
+                },
+                "required": ["memory_id"],
+            },
+        },
+        {
+            "name": "review_memory",
+            "description": "复盘指定日期的记忆活动，生成复盘报告。默认复盘昨日。每天 9AM 自动运行。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "description": "要复盘的日期 (YYYY-MM-DD)，默认昨日",
+                    },
+                },
+            },
+        },
     ]
 
 
@@ -240,6 +309,12 @@ class MCPServer:
             return await self._list_recent(args)
         elif name == "get_stats":
             return await self._get_stats()
+        elif name == "list_memories":
+            return await self._list_memories(args)
+        elif name == "find_similar":
+            return await self._find_similar(args)
+        elif name == "review_memory":
+            return await self._review_memory(args)
         else:
             return f"未知工具: {name}"
 
@@ -356,6 +431,67 @@ class MCPServer:
             tags_str = f" [{', '.join(n.tags)}]" if n.tags else ""
             date_str = n.created_at.strftime("%m-%d %H:%M") if n.created_at else "?"
             lines.append(f"{i}. `{n.id}` {date_str} {title}{tags_str}")
+        return "\n".join(lines)
+
+    async def _list_memories(self, args: dict) -> str:
+        agent = RetrievalAgent(self.memory, self.llm, self.vault_path)
+        result = await agent.list_all(
+            type_filter=args.get("type", "all"),
+            status_filter=args.get("status", "all"),
+            limit=args.get("limit", 50),
+            offset=args.get("offset", 0),
+            sort_by=args.get("sort_by", "created"),
+        )
+
+        if not result["items"]:
+            return "记忆库为空或没有符合条件的记忆。"
+
+        lines = [f"总计 {result['total']} 条记忆 (显示 {len(result['items'])} 条)：\n"]
+        for i, item in enumerate(result["items"], 1):
+            tags_str = f" [{', '.join(item['tags'])}]" if item['tags'] else ""
+            lines.append(
+                f"{i}. `{item['id']}` [{item['status']}] "
+                f"{item['title'][:60]}{tags_str} "
+                f"强度:{item['strength']:.0f} 重要:{item['importance']:.0f}"
+            )
+        return "\n".join(lines)
+
+    async def _find_similar(self, args: dict) -> str:
+        memory_id = args["memory_id"]
+        top_k = args.get("top_k", 5)
+
+        agent = RetrievalAgent(self.memory, self.llm, self.vault_path)
+        results = await agent.search_by_id(memory_id, top_k=top_k)
+
+        if not results:
+            return f"未找到与 `{memory_id}` 相似的记忆。"
+
+        lines = [f"与 `{memory_id}` 语义相似的记忆：\n"]
+        for i, r in enumerate(results, 1):
+            lines.append(f"**{i}.** [{r.score:.0%}] {r.title[:60]}")
+            lines.append(f"   id: `{r.memory_id}`")
+        return "\n".join(lines)
+
+    async def _review_memory(self, args: dict) -> str:
+        from memory_os.agents.review import ReviewAgent
+
+        date = args.get("date")  # optional, defaults to yesterday
+
+        agent = ReviewAgent(self.memory, self.llm, self.vault_path, self.config)
+        report = await agent.run(target_date=date)
+
+        lines = [
+            f"## 记忆复盘 — {report.target_date}",
+            f"- 时间线活动: {report.activities_count} 条",
+            f"- 新创建记忆: {report.new_memories} 条",
+        ]
+        if report.topics:
+            lines.append(f"- 话题: {', '.join(report.topics)}")
+        if report.key_decisions:
+            lines.append(f"- 关键结论: {len(report.key_decisions)} 条")
+        if report.narrative:
+            lines.append(f"\n{report.narrative}")
+
         return "\n".join(lines)
 
     async def _get_stats(self) -> str:

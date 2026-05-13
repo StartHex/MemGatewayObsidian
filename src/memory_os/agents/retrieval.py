@@ -229,6 +229,101 @@ class RetrievalAgent:
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:top_k]
 
+    async def search_by_id(self, memory_id: str, top_k: int = 5) -> list[SearchResult]:
+        try:
+            node = await self.memory.get(memory_id)
+        except FileNotFoundError:
+            logger.warning("search_by_id_not_found", memory_id=memory_id)
+            return []
+
+        try:
+            q_vec = (await self.llm.embed([node.content]))[0]
+        except Exception:
+            return []
+
+        all_results = []
+        for table in ("semantic", "episodic", "procedural"):
+            try:
+                rows = await self.vector.search(
+                    table, q_vec, top_k=top_k,
+                    where=f"memory_id != '{memory_id}'",
+                )
+                for r in rows:
+                    score = 0.5 * (1 - r.get("_distance", 0)) + 0.3 * (r.get("strength", 50) / 100) + 0.2 * (r.get("importance", 50) / 100)
+                    all_results.append(SearchResult(
+                        memory_id=r["memory_id"],
+                        title=r.get("file_path", ""),
+                        snippet="",
+                        score=min(score, 1.0),
+                        strategy=SearchStrategy.VECTOR,
+                        file_path=r.get("file_path", ""),
+                    ))
+            except Exception:
+                continue
+
+        all_results.sort(key=lambda r: r.score, reverse=True)
+        return all_results[:top_k]
+
+    async def list_all(
+        self,
+        *,
+        type_filter: str = "all",
+        status_filter: str = "all",
+        limit: int = 50,
+        offset: int = 0,
+        sort_by: str = "created",
+    ) -> dict:
+        from datetime import datetime as dt
+        from memory_os.vault.file_io import list_directory as _list_dir
+        from memory_os.vault.frontmatter import parse_memory as _parse
+
+        dirs = []
+        if type_filter in ("all", "semantic"):
+            dirs.append(self.vault_path / "_memory" / "semantic")
+        if type_filter in ("all", "episodic"):
+            dirs.append(self.vault_path / "_memory" / "episodic")
+        if type_filter in ("all", "procedural"):
+            dirs.append(self.vault_path / "_memory" / "procedural")
+
+        nodes = []
+        for d in dirs:
+            files = await _list_dir(d, "*.md")
+            for f in files:
+                try:
+                    n = await _parse(f)
+                    if status_filter != "all" and n.status.value != status_filter:
+                        continue
+                    nodes.append((n, f))
+                except Exception:
+                    continue
+
+        key_map = {
+            "created": lambda x: x[1].stat().st_mtime,
+            "strength": lambda x: x[0].strength,
+            "importance": lambda x: x[0].importance,
+            "recent": lambda x: x[1].stat().st_mtime,
+        }
+        key_fn = key_map.get(sort_by, key_map["created"])
+        nodes.sort(key=key_fn, reverse=True)
+
+        total = len(nodes)
+        page = nodes[offset:offset + limit]
+
+        items = []
+        for n, f in page:
+            items.append({
+                "id": n.id,
+                "title": n.title or n.content.split("\n")[0].replace("# ", "")[:80],
+                "type": n.type.value,
+                "status": n.status.value,
+                "strength": n.strength,
+                "importance": n.importance,
+                "tags": n.tags,
+                "file_path": str(f.relative_to(self.vault_path)),
+            })
+
+        return {"total": total, "items": items}
+
     def _extract_snippet(self, content: str, query: str, window: int = 100) -> str:
         idx = content.lower().find(query.lower())
         if idx < 0:

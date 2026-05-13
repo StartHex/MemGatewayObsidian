@@ -49,6 +49,7 @@ class AgentSchedule(BaseModel):
     consolidation_cron: str = "0 */4 * * *"
     forgetting_cron: str = "0 3 * * *"
     meta_cognition_cron: str = "0 9 * * 1"
+    review_cron: str = "57 8 * * *"
 
 
 class MemoryParams(BaseModel):

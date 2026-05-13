@@ -131,8 +131,30 @@ class MemoryOSClient:
         return await self._get("/api/v1/system/stats")
 
     async def trigger_agent(self, agent_name: str) -> dict:
-        """手动触发 Agent 运行。agent_name: consolidation/forgetting/meta_cognition"""
+        """手动触发 Agent 运行。agent_name: consolidation/forgetting/meta_cognition/review"""
         return await self._post("/api/v1/system/agents/run", {"agent": agent_name})
+
+    async def list_memories(
+        self,
+        *,
+        type: str = "all",
+        status: str = "all",
+        limit: int = 50,
+        offset: int = 0,
+        sort_by: str = "created",
+    ) -> dict:
+        """分页列出所有记忆。"""
+        return await self._get("/api/v1/memories", type=type, status=status,
+                               limit=limit, offset=offset, sort_by=sort_by)
+
+    async def find_similar(self, memory_id: str, top_k: int = 5) -> list[dict]:
+        """按记忆 ID 查找语义相似记忆。"""
+        return await self._get(f"/api/v1/memories/{memory_id}/similar", top_k=top_k)
+
+    async def trigger_review(self, date: str | None = None) -> dict:
+        """触发记忆复盘。date 格式: YYYY-MM-DD，默认昨日。"""
+        body = {"date": date} if date else {}
+        return await self._post("/api/v1/system/review", body)
 
 
 class SyncMemoryOSClient:
@@ -212,3 +234,13 @@ class SyncMemoryOSClient:
 
     def trigger_agent(self, agent_name: str) -> dict:
         return self._post("/api/v1/system/agents/run", {"agent": agent_name})
+
+    def list_memories(self, **kwargs) -> dict:
+        return self._get("/api/v1/memories", **kwargs)
+
+    def find_similar(self, memory_id: str, top_k: int = 5) -> list[dict]:
+        return self._get(f"/api/v1/memories/{memory_id}/similar", top_k=top_k)
+
+    def trigger_review(self, date: str | None = None) -> dict:
+        body = {"date": date} if date else {}
+        return self._post("/api/v1/system/review", body)

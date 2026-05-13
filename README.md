@@ -1,10 +1,10 @@
 # Memory OS
 
-> 一个仿人脑记忆系统的多 Agent 个人知识引擎。以 Obsidian vault 为存储基座，LanceDB 为向量索引，6 个独立 Agent 协同完成输入→巩固→检索→遗忘→自监控的完整记忆生命周期。
+> 一个仿人脑记忆系统的多 Agent 个人知识引擎。以 Obsidian vault 为存储基座，LanceDB 为向量索引，7 个独立 Agent 协同完成输入→巩固→检索→遗忘→复盘→自监控的完整记忆生命周期。
 
 ## 这是什么
 
-Memory OS 不是笔记工具，也不是传统 RAG。它是一套**后台常驻的 AI Agent 集群**，将你所有的对话、代码、文档、想法自动整理成一个"第二大脑"——有输入门控、有工作记忆槽位、有长期巩固、有遗忘曲线、有六路径检索，以及定期的自我健康检查。
+Memory OS 不是笔记工具，也不是传统 RAG。它是一套**后台常驻的 AI Agent 集群**，将你所有的对话、代码、文档、想法自动整理成一个"第二大脑"——有输入门控、有工作记忆槽位、有长期巩固、有遗忘曲线、有每日复盘、有六路径检索，以及定期的自我健康检查。
 
 你不需要手动整理。Agent 在你睡觉的时候干活。
 
@@ -52,38 +52,52 @@ Memory OS 用工程手段逐个映射：
                                   │ + LanceDB 向量库 │
                                   └──────────────────┘
                                            │
-                        ┌──────────────────┼──────────────────┐
-                        │                  │                  │
-                        ▼                  ▼                  ▼
-                 ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-                 │ A5 Forgetting│  │ A6 Meta-     │  │ 4x Canvas    │
-                 │ 遗忘管理      │  │ Cognition    │  │ 可视化面板    │
-                 │              │  │ 元认知监控    │  │              │
-                 └──────────────┘  └──────────────┘  └──────────────┘
+                        ┌──────────────────┼──────────────────────┐
+                        │                  │                      │
+                        ▼                  ▼                      ▼
+                 ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐
+                 │ A5 Forgetting│  │ A6 Review    │  │ A7 Meta-         │
+                 │ 遗忘管理      │  │ 每日复盘      │  │ Cognition        │
+                 │              │  │              │  │ 元认知监控        │
+                 └──────────────┘  └──────────────┘  └──────────────────┘
+                        │                  │                      │
+                        └──────────────────┼──────────────────────┘
+                                           │
+                                           ▼
+                                    ┌──────────────┐
+                                    │ 4x Canvas    │
+                                    │ 可视化面板    │
+                                    └──────────────┘
 ```
 
-**六个 Agent 各自独立运行，通过 Obsidian vault 文件系统异步通信。**
+**七个 Agent 各自独立运行，通过 Obsidian vault 文件系统异步通信。**
 
 | Agent | 对应脑区 | 触发方式 | 做什么 |
 |-------|---------|---------|--------|
-| **Sensory Gateway** | 丘脑+感觉皮层 | 实时 | 接收所有输入→去重→分类→写 `_inbox/` |
+| **Sensory Gateway** | 丘脑+感觉皮层 | 实时 | 接收所有输入（支持 input+output 对）→去重→分类→写 `_inbox/` |
 | **Working Memory Manager** | 前额叶 | 实时 | 维护 ≤7 个活跃槽位，满时按 LRU+重要性踢出 |
-| **Consolidation Agent** | 海马体→新皮层 | 每4h / inbox≥20 | 摘要化+链接化+向量化+间隔重复调度 |
-| **Retrieval Agent** | 前额叶+颞叶 | 按需 | 6 条检索路径，向量语义为默认主路径 |
+| **Consolidation Agent** | 海马体→新皮层 | 每4h / inbox≥20 | 从 Q&A 对提炼语义记忆+程序记忆+情景日志 |
+| **Retrieval Agent** | 前额叶+颞叶 | 按需 | 6 条检索路径，向量语义为默认主路径，支持列表+按ID相似搜索 |
+| **Review Agent** | 前额叶+默认模式网络 | 每日上午 8:57 | 回顾昨日记忆活动，LLM 生成复盘报告（话题/决策/缺口/连接/行动建议） |
 | **Forgetting Agent** | 前额叶抑制 | 每日凌晨3点 | 计算强度衰减→分级归档→向量关联清理 |
 | **Meta-Cognition Agent** | 前扣带皮层 | 每周一早9点 | 健康报告+缺口发现+向量一致性校验+调参建议 |
 
 ## 记忆生命周期
 
 ```
-_inbox/ (status: raw)              ← Sensory Gateway 写入，不可变
+_inbox/ (status: raw)              ← Sensory Gateway 写入（含 input+output 对），不可变
     │
     ▼ Consolidation Agent 处理
 _inbox/ (status: processing)       ← 锁定中
     │
-    ▼ 摘要 + 链接 + 向量化
-_memory/semantic/ (status: active)  ← 长期记忆
-_vectors/semantic.lance              ← 向量索引（派生数据）
+    ▼ 提炼 3 种记忆：Episodic（情景日志）+ Semantic（知识点）+ Procedural（步骤流程）
+_memory/semantic/ (status: active)
+_memory/episodic/ (status: active)
+_memory/procedural/ (status: active)
+_vectors/*.lance                     ← 向量索引（派生数据）
+    │
+    ▼ 每日复盘（Review Agent）
+_memory/episodic/review-YYYY-MM-DD.md  ← 复盘报告
     │
     ▼ 时间衰减
 (status: fading)                     ← Forgetting Agent 标记
@@ -194,19 +208,26 @@ llm:
 ### 日常使用流程
 
 ```
-你说的话 / 写的代码 / 发的文件
+你说的话 / 写的代码 / 发的文件（支持 input+output 问答对）
     │
     ▼  自动
-Sensory Gateway 收进来 → 打标签 → 写入 _inbox/
+Sensory Gateway 收进来 → 打标签 → 写入 _inbox/（保存完整的 Q&A 对）
     │
     ▼  每4小时自动
-Consolidation Agent 摘要 + 链接 + 向量化 → _memory/
+Consolidation Agent 提炼 3 种记忆：
+  - Episodic: "什么时候讨论了什么"（情景日志）
+  - Semantic: "学到了什么知识点"（知识卡片）
+  - Procedural: "怎么做"（步骤流程）
     │
     ▼  随时
 你搜索 "上个月讨论过的那个 agent 通信方案"
     │
     ▼  Retrieval Agent 向量语义搜索
 返回 top-K 记忆 → 打开 Obsidian 笔记看到完整上下文
+    │
+    ▼  每天上午 8:57 自动
+Review Agent 回顾昨日所有记忆活动 → 生成复盘报告
+（话题总结 / 关键决策 / 知识缺口 / 连接建议 / 行动建议）
     │
     ▼  每天凌晨自动
 Forgetting Agent 清理不再需要的记忆 → 归档
@@ -219,12 +240,27 @@ Meta-Cognition 发你一份健康报告
 
 ```bash
 # 快速记录一条想法
-memory-os capture "Rust 的所有权系统用栈上分配避免了 GC"
+memory-os ingest "Rust 的所有权系统用栈上分配避免了 GC"
+
+# 记录问答对（Q + A → 自动提炼知识点和操作步骤）
+memory-os ingest "Docker 多阶段构建怎么做" --output "使用 builder stage 编译，再复制到 runtime stage"
 
 # 搜索
 memory-os search "agent 通信方案"              # 自动选择路径
 memory-os search "vector database" --mode vector  # 纯语义搜索
 memory-os search "mem-sem-20260512-001" --mode exact  # 精确 ID
+
+# 全量记忆列表（分页/过滤）
+memory-os list                                 # 列出所有记忆
+memory-os list --type semantic --limit 20      # 只列语义记忆
+memory-os list --sort importance               # 按重要性排序
+
+# 按记忆 ID 找相似
+memory-os similar mem-sem-xxx --top-k 10       # 语义相似记忆
+
+# 每日记忆复盘
+memory-os review                               # 复盘昨日
+memory-os review --date 2026-05-10             # 复盘指定日期
 
 # 查看状态
 memory-os status                               # 记忆统计概览
@@ -233,11 +269,29 @@ memory-os health                               # 最新健康报告
 # 手动触发 Agent
 memory-os agent run consolidation              # 立即巩固所有 pending 输入
 memory-os agent run forgetting                 # 立即运行遗忘扫描
+memory-os agent run review                     # 立即触发记忆复盘
 
 # Canvas 数据导出
 memory-os canvas graph --output graph.json     # 记忆图谱数据
 memory-os canvas heatmap --output heatmap.json # 强度热力图数据
 ```
+
+### MCP 工具（Claude Code 集成）
+
+通过 `memory-os mcp` 启动 MCP Server，Claude Code 等 MCP 客户端可直接调用以下工具：
+
+| 工具 | 用途 | 关键参数 |
+|------|------|---------|
+| `capture_memory` | 记录新记忆（支持 Q&A 对） | content, tags, output |
+| `search_memory` | 多策略检索 | query, strategy, top_k |
+| `list_memories` | 分页列出全量记忆 | type, status, limit, offset, sort_by |
+| `find_similar` | 按记忆 ID 找语义相似记忆 | memory_id, top_k |
+| `review_memory` | 手动触发复盘 | date (可选，默认昨日) |
+| `get_memory_stats` | 记忆库统计 | — |
+| `get_vault_health` | 系统健康检查 | — |
+| `trigger_agent` | 手动触发 Agent | agent (consolidation/forgetting/meta_cognition/review) |
+| `get_canvas_graph` | 记忆图谱数据 | status |
+| `get_canvas_heatmap` | 强度热力图数据 | — |
 
 ### 四张可视化 Canvas
 
@@ -295,7 +349,8 @@ memory-os canvas heatmap --output heatmap.json # 强度热力图数据
 | 检索 | 6 条互补路径 | 全文搜索 | 仅向量相似度 |
 | 元认知 | 健康报告+缺口检测+调参建议 | 无 | 无 |
 | 原始追溯 | `_inbox/` 不可变 | 修改即覆盖 | 无 provenance |
-| 运行方式 | 后台常驻 Agent 集群 | 手动打开 | 请求驱动 |
+| 每日复盘 | 自动回顾+LLM 生成报告 | 无 | 无 |
+| 运行方式 | 后台常驻 7 Agent 集群 | 手动打开 | 请求驱动 |
 
 ## 相关文档
 

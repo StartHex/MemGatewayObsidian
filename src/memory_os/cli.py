@@ -82,6 +82,74 @@ async def cmd_search(args):
         print(f"[{r.score:.2f}] {r.title[:60]}")
 
 
+async def cmd_list(args):
+    from memory_os.config.loader import load_config
+    from memory_os.llm.service import LLMService
+    from memory_os.memory.service import MemoryService
+    from memory_os.agents.retrieval import RetrievalAgent
+
+    vault = Path(args.vault)
+    config = load_config(vault)
+    memory = MemoryService(vault, config)
+    llm = LLMService(config)
+    agent = RetrievalAgent(memory, llm, vault)
+
+    result = await agent.list_all(
+        type_filter=args.type,
+        status_filter=args.status,
+        limit=args.limit,
+        offset=args.offset,
+        sort_by=args.sort,
+    )
+    print(f"总计 {result['total']} 条记忆 (显示 {len(result['items'])} 条):")
+    for item in result["items"]:
+        print(f"  [{item['type']}] {item['id']} {item['title'][:60]}")
+        print(f"    强度:{item['strength']:.0f} 重要:{item['importance']:.0f} 状态:{item['status']}")
+
+
+async def cmd_similar(args):
+    from memory_os.config.loader import load_config
+    from memory_os.llm.service import LLMService
+    from memory_os.memory.service import MemoryService
+    from memory_os.agents.retrieval import RetrievalAgent
+
+    vault = Path(args.vault)
+    config = load_config(vault)
+    memory = MemoryService(vault, config)
+    llm = LLMService(config)
+    agent = RetrievalAgent(memory, llm, vault)
+
+    results = await agent.search_by_id(args.memory_id, top_k=args.top_k)
+    if not results:
+        print(f"未找到与 {args.memory_id} 相似的记忆")
+        return
+    for r in results:
+        print(f"[{r.score:.2f}] {r.title[:60]}  id={r.memory_id}")
+
+
+async def cmd_review(args):
+    from memory_os.config.loader import load_config
+    from memory_os.llm.service import LLMService
+    from memory_os.memory.service import MemoryService
+    from memory_os.agents.review import ReviewAgent
+
+    vault = Path(args.vault)
+    config = load_config(vault)
+    memory = MemoryService(vault, config)
+    llm = LLMService(config)
+    agent = ReviewAgent(memory, llm, vault, config)
+
+    report = await agent.run(target_date=args.date)
+    print(f"## 记忆复盘 — {report.target_date}")
+    print(f"时间线活动: {report.activities_count} 条, 新记忆: {report.new_memories} 条")
+    if report.topics:
+        print(f"话题: {', '.join(report.topics)}")
+    if report.key_decisions:
+        print(f"关键结论 ({len(report.key_decisions)} 条)")
+    if report.narrative:
+        print(f"\n{report.narrative}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Mem-Gateway-Obsidian")
     sub = parser.add_subparsers(dest="command")
@@ -97,6 +165,23 @@ def main():
     p_search = sub.add_parser("search", help="检索记忆")
     p_search.add_argument("query")
     p_search.add_argument("--vault", default=str(Path.home() / "memory-vault"))
+
+    p_list = sub.add_parser("list", help="列出所有记忆")
+    p_list.add_argument("--type", "-t", choices=["all", "semantic", "episodic", "procedural"], default="all")
+    p_list.add_argument("--status", "-s", choices=["all", "active", "fading", "archived"], default="all")
+    p_list.add_argument("--limit", "-n", type=int, default=50)
+    p_list.add_argument("--offset", "-o", type=int, default=0)
+    p_list.add_argument("--sort", choices=["created", "strength", "importance", "recent"], default="created")
+    p_list.add_argument("--vault", default=str(Path.home() / "memory-vault"))
+
+    p_similar = sub.add_parser("similar", help="查找与指定记忆语义相似的记忆")
+    p_similar.add_argument("memory_id")
+    p_similar.add_argument("--top-k", "-k", type=int, default=5)
+    p_similar.add_argument("--vault", default=str(Path.home() / "memory-vault"))
+
+    p_review = sub.add_parser("review", help="触发记忆复盘（默认复盘昨日）")
+    p_review.add_argument("--date", "-d", help="要复盘的日期 (YYYY-MM-DD)，默认昨日")
+    p_review.add_argument("--vault", default=str(Path.home() / "memory-vault"))
 
     p_tui = sub.add_parser("tui", help="启动 Textual TUI")
     p_tui.add_argument("--vault", default=str(Path.home() / "memory-vault"))
@@ -120,6 +205,12 @@ def main():
         asyncio.run(cmd_ingest(args))
     elif args.command == "search":
         asyncio.run(cmd_search(args))
+    elif args.command == "list":
+        asyncio.run(cmd_list(args))
+    elif args.command == "similar":
+        asyncio.run(cmd_similar(args))
+    elif args.command == "review":
+        asyncio.run(cmd_review(args))
     elif args.command == "tui":
         if args.backend == "textual":
             from memory_os.tui.textual_app import main as tui_main

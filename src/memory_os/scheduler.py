@@ -18,6 +18,7 @@ import structlog
 from memory_os.agents.consolidation import ConsolidationAgent
 from memory_os.agents.forgetting import ForgettingAgent
 from memory_os.agents.meta_cognition import MetaCognitionAgent
+from memory_os.agents.review import ReviewAgent
 from memory_os.config.loader import load_config
 from memory_os.config.models import SystemConfig
 from memory_os.llm.service import LLMService
@@ -135,6 +136,11 @@ class AgentScheduler:
                 "meta_cognition",
                 agents.meta_cognition_cron,
                 lambda: MetaCognitionAgent(mem, llm, cfg, vault).run(),
+            ),
+            (
+                "review",
+                agents.review_cron,
+                lambda: ReviewAgent(mem, llm, vault, cfg).run(),
             ),
         ]
 

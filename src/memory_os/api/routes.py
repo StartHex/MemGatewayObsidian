@@ -180,6 +180,40 @@ async def trigger_agent(req: TriggerAgentRequest):
         agent = ForgettingAgent(memory, config, vault_path)
     elif req.agent == "meta_cognition":
         agent = MetaCognitionAgent(memory, llm, config, vault_path)
+    elif req.agent == "review":
+        from memory_os.agents.review import ReviewAgent
+        agent = ReviewAgent(memory, llm, vault_path, config)
     else:
         raise HTTPException(400, f"未知 Agent: {req.agent}")
     return await agent.run()
+
+
+@app.get("/api/v1/memories")
+async def list_memories(
+    type: str = "all",
+    status: str = "all",
+    limit: int = 50,
+    offset: int = 0,
+    sort_by: str = "created",
+):
+    vault_path, config, memory, llm = _get_services()
+    agent = RetrievalAgent(memory, llm, vault_path)
+    return await agent.list_all(
+        type_filter=type, status_filter=status,
+        limit=limit, offset=offset, sort_by=sort_by,
+    )
+
+
+@app.get("/api/v1/memories/{memory_id}/similar")
+async def find_similar(memory_id: str, top_k: int = 5):
+    vault_path, config, memory, llm = _get_services()
+    agent = RetrievalAgent(memory, llm, vault_path)
+    return await agent.search_by_id(memory_id, top_k=top_k)
+
+
+@app.post("/api/v1/system/review")
+async def trigger_review(date: str | None = None):
+    from memory_os.agents.review import ReviewAgent
+    vault_path, config, memory, llm = _get_services()
+    agent = ReviewAgent(memory, llm, vault_path, config)
+    return await agent.run(target_date=date)
