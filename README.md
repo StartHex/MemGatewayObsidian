@@ -148,9 +148,18 @@ memory-os serve          # 后台常驻，Agent 开始工作
 
 ### LLM 配置示例
 
-支持三种部署模式，在 `_meta/system-config.yaml` 中配置：
+在 `_meta/system-config.yaml` 中配置。**embedding 是可选的**——不配置时系统自动回退到关键词搜索，向量存储和语义匹配功能跳过。
 
-**全 Anthropic 栈：**
+**最小配置（仅聊天，无 embedding）：**
+```yaml
+llm:
+  chat:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    api_key: ${ANTHROPIC_API_KEY}
+```
+
+**带 embedding（推荐，启用语义搜索）：**
 ```yaml
 llm:
   chat:
@@ -179,7 +188,7 @@ llm:
     dimension: 768
 ```
 
-**混和部署（推荐）：**
+**混和部署：**
 ```yaml
 llm:
   chat:
@@ -208,6 +217,130 @@ llm:
 | Canvas | 内嵌 WebView（完整） | ASCII 降级 | 完整 D3.js / ECharts |
 
 三种客户端可同时运行，连接同一个 vault。
+
+### 自动记忆注入（Auto-Inject）
+
+Memory OS 可在每次对话时**自动检索相关记忆并注入到 Claude Code 上下文**中，无需手动搜索。
+
+**工作原理：**
+
+```
+用户输入消息
+    │
+    ▼
+Claude Code hook (UserPromptSubmit)
+    │
+    ├─ 1. POST /api/v1/search/inject-and-save
+    │     检索相关记忆 → 写入 _meta/last-context.md
+    │
+    └─ 2. POST /api/v1/memories
+          捕获当前消息到 inbox
+```
+
+**CLAUDE.md 指令**告诉 Claude Code 在回复前检查 `last-context.md`，将相关记忆融入回答。
+
+**配置方式（在 settings.json 中）：**
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{
+      "matcher": "",
+      "command": "/path/to/scripts/capture_hook.py"
+    }]
+  },
+  "env": {
+    "MEMORY_OS_API": "http://127.0.0.1:9090"
+  }
+}
+```
+
+有相关记忆时自动创建 `_meta/last-context.md`，无相关记忆时自动删除，避免过期上下文干扰。
+
+### 五 Hook 生命周期
+
+Memory OS 通过 5 个 Claude Code Hook 覆盖会话全流程，实现跨会话记忆无缝衔接：
+
+```
+🚀 SessionStart  → 注入 hot.md 摘要 + 激活记忆统计
+     │
+💬 UserPromptSubmit → 分类路由 + 检索注入 (capture_hook.py)
+     │
+✍️ PostToolUse → 验证写入的 .md 文件 (frontmatter + wikilinks)
+     │
+💾 PreCompact → 备份 session transcript 到 _agent-logs/
+     │
+🏁 Stop → 更新 hot.md + 打印会话摘要统计
+```
+
+| Hook | 脚本 | 触发时机 | 功能 |
+|------|------|---------|------|
+| **SessionStart** | `scripts/session_start_hook.py` | 会话启动 | 注入 `hot.md` 摘要，让新对话自动获得上次会话的上下文 |
+| **UserPromptSubmit** | `scripts/capture_hook.py` | 每次输入 | 检索相关记忆 → 写入 `last-context.md` + 捕获消息到 inbox |
+| **PostToolUse** | `scripts/post_tool_hook.py` | 工具调用后 | 验证写入 vault 的 .md 文件：检查 frontmatter 字段完整性 + wikilinks 有效性 |
+| **PreCompact** | `scripts/pre_compact_hook.py` | 上下文压缩前 | 保存对话转录到 `_agent-logs/session-{timestamp}.md`，防止信息丢失 |
+| **Stop** | `scripts/stop_hook.py` | 会话结束 | 重新生成 `hot.md` + 打印会话统计摘要 |
+
+**配置方式（在 `~/.claude/settings.json` 中）：**
+```json
+{
+  "hooks": {
+    "SessionStart": [{"matcher": "", "command": "/path/to/scripts/session_start_hook.py"}],
+    "UserPromptSubmit": [{"matcher": "", "command": "/path/to/scripts/capture_hook.py"}],
+    "PostToolUse": [{"matcher": "*.md", "command": "/path/to/scripts/post_tool_hook.py"}],
+    "PreCompact": [{"matcher": "", "command": "/path/to/scripts/pre_compact_hook.py"}],
+    "Stop": [{"matcher": "", "command": "/path/to/scripts/stop_hook.py"}]
+  }
+}
+```
+
+### Hot Cache 热缓存机制
+
+`hot.md` 是跨会话的"记忆快照"，由 Stop Hook 在每次会话结束时更新，SessionStart Hook 在新会话启动时注入。
+
+**hot.md 内容结构：**
+```markdown
+# Hot Context
+> Updated: 2026-05-13T14:30:00 | Session #5 | Vault: ~/my-memory
+
+## Active Memories (10)
+- [[mem-sem-xxx|Memory OS 架构]] (strength: 90, last_retrieved: 2h ago)
+- [[mem-sem-yyy|项目比较分析]] (strength: 75)
+
+## Recent Activity (5 days)
+- 2026-05-13: 5 episodic entries
+- 2026-05-12: 2 episodic entries
+
+## Pending (6)
+- 3 inbox items waiting for consolidation
+- 1 conflict unresolved
+- 2 fading memories below threshold
+
+## Top Decisions
+- Memory OS 三端架构已完成 (2026-05-13)
+- Embedding 模型改为可选配置 (2026-05-13)
+```
+
+**相关 API：**
+
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| GET | `/api/v1/system/hot` | 获取 hot.md 内容（自动生成如果缺失） |
+| POST | `/api/v1/system/hot/update` | 重新生成 hot.md |
+| POST | `/api/v1/system/transcript/save` | 保存会话转录 |
+| POST | `/api/v1/system/validate` | 验证 .md 文件的 frontmatter + wikilinks |
+
+### 分级 Token 加载策略
+
+为避免每次对话注入过多无关上下文，采用四级 token 预算控制：
+
+| 层级 | 内容 | Token 预算 | 触发时机 |
+|------|------|-----------|---------|
+| **Always** | hot.md 摘要 | ~200 | SessionStart |
+| **On-demand** | search_and_inject 检索结果 | ~500 | UserPromptSubmit |
+| **Triggered** | Agent 运行报告 | ~300 | 特定命令触发 |
+| **Rare** | 完整记忆文件 | 不限 | 用户明确请求 |
+
+`search_and_inject` 支持 `max_tokens` 参数控制输出长度，`min_score` 参数过滤低相关度结果（默认 0.40）。
 
 ### 日常使用流程
 
@@ -268,6 +401,11 @@ memory-os list                                 # 列出所有记忆
 memory-os list --type semantic --limit 20      # 只列语义记忆
 memory-os list --sort importance               # 按重要性排序
 
+# 搜索并拼接为 Context（手动注入）
+memory-os search-inject "agent 通信方案"         # 检索+加载全文+格式化 Context
+memory-os search-inject "vector database" -k 3  # 最多 3 条
+# 注: Claude Code hook 已实现自动注入，CLI 仅为手动使用场景
+
 # 按记忆 ID 找相似
 memory-os similar mem-sem-xxx --top-k 10       # 语义相似记忆
 
@@ -297,6 +435,7 @@ memory-os canvas heatmap --output heatmap.json # 强度热力图数据
 |------|------|---------|
 | `capture_memory` | 记录新记忆（支持 Q&A 对） | content, tags, output |
 | `search_memory` | 多策略检索 | query, strategy, top_k |
+| `search_and_inject` | 检索+加载全文+拼接为 Context（自动注入链路的检索端） | query, top_k |
 | `list_memories` | 分页列出全量记忆 | type, status, limit, offset, sort_by |
 | `find_similar` | 按记忆 ID 找语义相似记忆 | memory_id, top_k |
 | `review_memory` | 手动触发复盘 | date (可选，默认昨日) |
@@ -306,6 +445,9 @@ memory-os canvas heatmap --output heatmap.json # 强度热力图数据
 | `working_memory` | 工作记忆槽位管理 | action (list/promote/update/evict/conclude), slot_id, memory_id, name, content |
 | `get_canvas_graph` | 记忆图谱数据 | status |
 | `get_canvas_heatmap` | 强度热力图数据 | — |
+| `get_hot_context` | 获取 hot.md 上下文 | — |
+| `update_hot_context` | 刷新 hot.md | — |
+| `validate_memory_file` | 验证 .md 文件 | file_path |
 
 ### 四张可视化 Canvas
 
@@ -334,6 +476,9 @@ memory-os canvas heatmap --output heatmap.json # 强度热力图数据
 ├── _canvas/                       # Canvas 缓存数据
 ├── _meta/                         # 系统元数据
 │   ├── index.md                   # 全局记忆索引
+│   ├── hot.md                     # 会话热缓存（跨会话记忆快照）
+│   ├── last-context.md            # 当前对话上下文（自动注入）
+│   ├── validation-log.md          # 文件验证日志
 │   ├── strength-matrix.md         # 强度评分表
 │   ├── gaps.md                    # 知识缺口记录
 │   ├── cognitive-conflicts.md     # 认知冲突日志
@@ -351,7 +496,7 @@ memory-os canvas heatmap --output heatmap.json # 强度热力图数据
 | 主存储 | Obsidian vault (Markdown) | 人类可读、git 可版控、wikilinks 建模语义网络 |
 | 向量库 | LanceDB | 嵌入式、文件级持久化、ANN 毫秒级、随 vault 一起备份 |
 | LLM 接入 | Provider Adapter 双层 | OpenAI + Anthropic 双协议，换 provider 只改一行配置 |
-| Embedding | BGE-M3（默认） | 本地运行、中英双语、1024 维、零成本 |
+| Embedding | BGE-M3 / OpenAI / 无 | 可选——不配置时自动回退到关键词搜索 |
 | GUI | Tauri 2.x | ~5MB 包体、系统托盘、全局快捷键、原生通知 |
 | TUI | Python Textual | SSH 可用、vim 键位、tmux 长驻 |
 | WebUI | React + FastAPI | PWA 支持、跨设备、完整图表生态 |

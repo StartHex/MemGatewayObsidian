@@ -10,6 +10,7 @@ from memory_os.vault.models import MemoryNode, MemoryStatus, MemoryType
 
 class ConsolidationMockLLM:
     """Mock LLM that returns different responses based on prompt content."""
+    has_embedding = True
 
     def __init__(self):
         self.calls: list[dict] = []
@@ -43,6 +44,7 @@ class ConsolidationMockLLM:
 
 class ConsolidationMockLLMNoProcedural:
     """Mock LLM that never triggers procedural creation."""
+    has_embedding = True
 
     def __init__(self):
         self.calls: list[dict] = []
@@ -270,6 +272,7 @@ async def test_summarize_pair_method(test_vault_path, test_config):
 
 class ConflictMockLLM:
     """Returns conflict detection result."""
+    has_embedding = True
 
     def __init__(self):
         self.calls: list[dict] = []
@@ -303,6 +306,7 @@ class ConflictMockLLM:
 
 class NoConflictMockLLM:
     """Returns no-conflict result."""
+    has_embedding = True
 
     def __init__(self):
         self.calls: list[dict] = []

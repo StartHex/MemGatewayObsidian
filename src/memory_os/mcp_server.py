@@ -48,6 +48,25 @@ def _build_tools() -> list[dict]:
             },
         },
         {
+            "name": "search_and_inject",
+            "description": "搜索记忆并直接拼接成可注入 LLM 对话的 Context 上下文。自动检索相关记忆，加载完整内容（过长时提炼），返回格式化的 Context 字符串。适合在对话中获取记忆上下文。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "搜索查询",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "返回结果数量，默认 5",
+                        "default": 5,
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+        {
             "name": "capture_memory",
             "description": "将重要信息存入记忆库。适合保存用户偏好、决策、项目上下文、学到的知识等，供后续对话检索。同时提供 input 和 output 可让记忆更完整（系统会自动提炼结论和步骤）。",
             "inputSchema": {
@@ -330,6 +349,8 @@ class MCPServer:
     async def _execute(self, name: str, args: dict) -> str:
         if name == "search_memory":
             return await self._search(args)
+        elif name == "search_and_inject":
+            return await self._search_and_inject(args)
         elif name == "capture_memory":
             return await self._capture(args)
         elif name == "get_memory":
@@ -369,6 +390,15 @@ class MCPServer:
                 lines.append(f"   {r.snippet[:200]}")
             lines.append(f"   id: `{r.memory_id}`")
         return "\n".join(lines)
+
+    async def _search_and_inject(self, args: dict) -> str:
+        query = args["query"]
+        top_k = args.get("top_k", 5)
+        agent = RetrievalAgent(self.memory, self.llm, self.vault_path)
+        ctx = await agent.search_and_inject(query, top_k=top_k)
+        if not ctx:
+            return "未找到相关记忆，无法生成上下文。"
+        return ctx
 
     async def _capture(self, args: dict) -> str:
         content = args["content"]

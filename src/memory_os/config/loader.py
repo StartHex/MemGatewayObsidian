@@ -35,5 +35,7 @@ def load_config(vault_path: Path) -> SystemConfig:
 
 
 def embedding_config_hash(config) -> str:
+    if config is None:
+        return "none"
     payload = f"{config.provider}:{config.model}:{config.dimension}:{config.base_url or ''}"
     return hashlib.sha256(payload.encode()).hexdigest()[:16]

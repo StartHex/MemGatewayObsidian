@@ -41,7 +41,7 @@ class AgentOverrides(BaseModel):
 class LLMConfig(BaseModel):
     chat: ChatConfig
     fallback: ChatConfig | None = None
-    embedding: EmbeddingConfig
+    embedding: EmbeddingConfig | None = None
     agent_overrides: AgentOverrides = Field(default_factory=AgentOverrides)
 
 

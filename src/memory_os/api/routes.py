@@ -119,6 +119,11 @@ class SearchRequest(BaseModel):
     top_k: int = 10
 
 
+class InjectRequest(BaseModel):
+    query: str
+    top_k: int = 5
+
+
 class TriggerAgentRequest(BaseModel):
     agent: str  # consolidation | forgetting | meta_cognition | review
 
@@ -255,6 +260,42 @@ async def search(req: SearchRequest):
     return await agent.search(req.query, strategy=strategy, top_k=req.top_k)
 
 
+@app.post("/api/v1/search/inject")
+async def search_and_inject(req: InjectRequest):
+    vault_path, config, memory, llm = _get_services()
+    agent = RetrievalAgent(memory, llm, vault_path)
+    ctx = await agent.search_and_inject(req.query, top_k=req.top_k)
+    return {"query": req.query, "context": ctx, "result_count": ctx.count("[记忆")}
+
+
+@app.post("/api/v1/search/inject-and-save")
+async def search_inject_and_save(req: InjectRequest):
+    """搜索相关记忆并写入 _meta/last-context.md，无结果时删除旧文件。"""
+    vault_path, config, memory, llm = _get_services()
+    agent = RetrievalAgent(memory, llm, vault_path)
+    ctx = await agent.search_and_inject(req.query, top_k=req.top_k, min_score=0.40)
+
+    context_path = vault_path / "_meta" / "last-context.md"
+    result_count = ctx.count("[记忆") if ctx else 0
+
+    if ctx and result_count > 0:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        content = (
+            f"# Memory Context\n"
+            f"> Retrieved: {now} | Query: \"{req.query[:120]}\"\n"
+            f"> {result_count} relevant memories found\n\n"
+            f"{ctx}\n"
+        )
+        context_path.parent.mkdir(parents=True, exist_ok=True)
+        context_path.write_text(content, encoding="utf-8")
+        return {"query": req.query, "context": ctx, "result_count": result_count, "saved": True}
+    else:
+        if context_path.exists():
+            context_path.unlink()
+        return {"query": req.query, "context": "", "result_count": 0, "saved": False}
+
+
 # ── Working Memory ──────────────────────────────────────────────
 
 @app.post("/api/v1/working-memory/{action}")
@@ -281,6 +322,72 @@ async def working_memory_action(action: str, request: dict | None = None):
         trace = await wm.conclude_slot(int(args.get("slot_id", 0)))
         return trace.model_dump() if trace else {"trace": None}
     raise HTTPException(400, f"Unknown action: {action}")
+
+
+# ── Hot Cache ────────────────────────────────────────────────────
+
+class TranscriptSaveRequest(BaseModel):
+    content: str
+    metadata: dict = {}
+
+
+class ValidateRequest(BaseModel):
+    file_path: str
+
+
+@app.get("/api/v1/system/hot")
+async def get_hot():
+    """Return hot.md content for session injection."""
+    from memory_os.api.hot_cache import HotCacheManager
+    vault_path = _get_services()[0]
+    manager = HotCacheManager(vault_path)
+    content = await manager.get()
+    if content:
+        return {"content": content, "generated": False}
+    # Auto-generate if missing
+    content = await manager.generate(session_count=1)
+    return {"content": content, "generated": True}
+
+
+@app.post("/api/v1/system/hot/update")
+async def update_hot(session_count: int = 0):
+    """Regenerate hot.md from current vault state."""
+    from memory_os.api.hot_cache import HotCacheManager
+    vault_path = _get_services()[0]
+    manager = HotCacheManager(vault_path)
+    content = await manager.generate(session_count=session_count)
+    return {"content": content, "updated": True}
+
+
+@app.post("/api/v1/system/transcript/save")
+async def save_transcript(req: TranscriptSaveRequest):
+    """Save session transcript to _agent-logs/."""
+    vault_path = _get_services()[0]
+    from datetime import datetime, timezone
+    from memory_os.vault.file_io import atomic_write
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    session_id = req.metadata.get("session_id", "unknown")[:20]
+    filename = f"session-{session_id}-{ts}.md"
+    log_dir = vault_path / "_agent-logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    log_content = (
+        f"# Session Transcript\n"
+        f"> Saved: {ts} | Messages: {req.metadata.get('message_count', 0)}\n\n"
+        f"```json\n{req.content}\n```\n"
+    )
+    await atomic_write(log_dir / filename, log_content)
+
+    return {"saved": True, "file": f"_agent-logs/{filename}"}
+
+
+@app.post("/api/v1/system/validate")
+async def validate_file(req: ValidateRequest):
+    """Validate a markdown file: frontmatter fields + wikilinks."""
+    from memory_os.api.hot_cache import validate_md_file
+    vault_path = _get_services()[0]
+    return await validate_md_file(vault_path, req.file_path)
 
 
 # ── Canvas data ─────────────────────────────────────────────────

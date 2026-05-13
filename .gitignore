@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 .DS_Store
 .env
+specs/
 demo-vault/
 webui-react/dist/
 webui-react/node_modules/

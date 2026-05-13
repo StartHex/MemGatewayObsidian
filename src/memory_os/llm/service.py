@@ -30,7 +30,11 @@ class LLMService:
         self.fallback_adapter = (
             self._build_chat_adapter(config.llm.fallback) if config.llm.fallback else None
         )
-        self.embedding_adapter = build_embedding_adapter(config.llm.embedding)
+        try:
+            self.embedding_adapter = build_embedding_adapter(config.llm.embedding) if config.llm.embedding else None
+        except Exception:
+            logger.warning("embedding_adapter_init_failed", error=str(Exception))
+            self.embedding_adapter = None
         self.token_tracker = TokenTracker(vault_path) if vault_path else None
 
     def _build_chat_adapter(self, cfg) -> BaseChatAdapter:
@@ -91,7 +95,13 @@ class LLMService:
             output_tokens=resp.output_tokens,
         ))
 
+    @property
+    def has_embedding(self) -> bool:
+        return self.embedding_adapter is not None
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
+        if not self.embedding_adapter:
+            return []
         batch_size = self.config.llm.embedding.batch_size
         results = []
         for batch in _iter_chunks(texts, batch_size):

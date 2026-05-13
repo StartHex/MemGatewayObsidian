@@ -11,6 +11,7 @@ from memory_os.vault.models import MemoryType
 
 class RetrievalMockLLM:
     """Mock LLM that returns fixed embeddings."""
+    has_embedding = True
 
     async def chat(self, request, agent_name=None):
         from memory_os.llm.models import UnifiedChatResponse

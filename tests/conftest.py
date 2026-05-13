@@ -45,6 +45,8 @@ def test_config(test_vault_path):
 
 
 class MockLLMService:
+    has_embedding = True
+
     async def chat(self, request, agent_name=None):
         from memory_os.llm.models import UnifiedChatResponse
         return UnifiedChatResponse(

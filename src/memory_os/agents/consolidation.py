@@ -95,28 +95,29 @@ class ConsolidationAgent:
         if conflicts:
             await self._apply_conflicts(sem_node, conflicts)
 
-        try:
-            embedding = (await self.llm.embed([summary]))[0]
-            emb_id = f"emb-sem-{sem_node.id}"
-            sem_node.embedding_id = emb_id
-            sem_node.vector_status = MemoryStatus.ACTIVE
-            sem_node.vector_model = self.config.llm.embedding.model
-            sem_node.vector_dim = self.config.llm.embedding.dimension
+        if self.llm.has_embedding and self.config.llm.embedding:
+            try:
+                embedding = (await self.llm.embed([summary]))[0]
+                emb_id = f"emb-sem-{sem_node.id}"
+                sem_node.embedding_id = emb_id
+                sem_node.vector_status = MemoryStatus.ACTIVE
+                sem_node.vector_model = self.config.llm.embedding.model
+                sem_node.vector_dim = self.config.llm.embedding.dimension
 
-            await self._vector_store().upsert("semantic", [{
-                "memory_id": sem_node.id,
-                "vector": embedding,
-                "strength": float(sem_node.strength),
-                "importance": float(sem_node.importance),
-                "status": "active",
-                "tags": sem_node.tags,
-                "file_path": str(self._semantic_path(sem_node).relative_to(self.vault_path)),
-                "last_retrieved": datetime.now(timezone.utc).isoformat(),
-                "next_review": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
-            }])
-            stats.embeddings_generated += 1
-        except Exception as e:
-            logger.warning("embedding_failed", error=str(e))
+                await self._vector_store().upsert("semantic", [{
+                    "memory_id": sem_node.id,
+                    "vector": embedding,
+                    "strength": float(sem_node.strength),
+                    "importance": float(sem_node.importance),
+                    "status": "active",
+                    "tags": sem_node.tags,
+                    "file_path": str(self._semantic_path(sem_node).relative_to(self.vault_path)),
+                    "last_retrieved": datetime.now(timezone.utc).isoformat(),
+                    "next_review": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+                }])
+                stats.embeddings_generated += 1
+            except Exception as e:
+                logger.warning("embedding_failed", error=str(e))
 
         if has_output:
             pro_node = await self._maybe_create_procedural(raw_node.content, raw_node.raw_output, sem_node)
@@ -188,26 +189,27 @@ class ConsolidationAgent:
             pro_node.raw_input_ref = sem_node.raw_input_ref
             pro_node.links_to = [f"[[{self._semantic_path(sem_node).relative_to(self.vault_path)}]]"]
 
-            try:
-                embedding = (await self.llm.embed([pro_content]))[0]
-                pro_node.embedding_id = f"emb-pro-{pro_node.id}"
-                pro_node.vector_status = MemoryStatus.ACTIVE
-                pro_node.vector_model = self.config.llm.embedding.model
-                pro_node.vector_dim = self.config.llm.embedding.dimension
+            if self.llm.has_embedding and self.config.llm.embedding:
+                try:
+                    embedding = (await self.llm.embed([pro_content]))[0]
+                    pro_node.embedding_id = f"emb-pro-{pro_node.id}"
+                    pro_node.vector_status = MemoryStatus.ACTIVE
+                    pro_node.vector_model = self.config.llm.embedding.model
+                    pro_node.vector_dim = self.config.llm.embedding.dimension
 
-                await self._vector_store().upsert("procedural", [{
-                    "memory_id": pro_node.id,
-                    "vector": embedding,
-                    "strength": float(pro_node.strength),
-                    "importance": float(pro_node.importance),
-                    "status": "active",
-                    "tags": pro_node.tags,
-                    "file_path": str(self._procedural_path(pro_node).relative_to(self.vault_path)),
-                    "last_retrieved": datetime.now(timezone.utc).isoformat(),
-                    "next_review": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
-                }])
-            except Exception as e:
-                logger.warning("procedural_embedding_failed", error=str(e))
+                    await self._vector_store().upsert("procedural", [{
+                        "memory_id": pro_node.id,
+                        "vector": embedding,
+                        "strength": float(pro_node.strength),
+                        "importance": float(pro_node.importance),
+                        "status": "active",
+                        "tags": pro_node.tags,
+                        "file_path": str(self._procedural_path(pro_node).relative_to(self.vault_path)),
+                        "last_retrieved": datetime.now(timezone.utc).isoformat(),
+                        "next_review": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+                    }])
+                except Exception as e:
+                    logger.warning("procedural_embedding_failed", error=str(e))
 
             pro_node.strength_initial = self._calc_initial_strength_procedural()
             pro_node.next_review = datetime.now(timezone.utc) + timedelta(days=1)
@@ -220,6 +222,8 @@ class ConsolidationAgent:
             return None
 
     async def _discover_links(self, summary: str) -> list[str]:
+        if not self.llm.has_embedding:
+            return []
         try:
             embedding = (await self.llm.embed([summary]))[0]
             results = await self._vector_store().search("semantic", embedding, top_k=5)
@@ -234,6 +238,8 @@ class ConsolidationAgent:
     async def _discover_links_and_conflicts(
         self, summary: str, new_node_id: str | None,
     ) -> tuple[list[str], list[dict]]:
+        if not self.llm.has_embedding:
+            return [], []
         try:
             embedding = (await self.llm.embed([summary]))[0]
             results = await self._vector_store().search("semantic", embedding, top_k=5)

@@ -89,7 +89,12 @@ class CanvasDataAdapter:
                 for link in node.links_to:
                     target = link.replace("[[", "").replace("]]", "").split("/")[-1].replace(".md", "")
                     if target:
-                        edges.append(GraphEdge(source=node.id, target=target))
+                        clean = target.split("/")[-1]
+                        parts = clean.split("-")
+                        if len(parts) >= 4:
+                            clean = "-".join(parts[:4])
+                        if clean and clean != node.id:
+                            edges.append(GraphEdge(source=node.id, target=clean))
             except Exception:
                 continue
         return GraphData(nodes=nodes, edges=edges)
@@ -121,8 +126,11 @@ class CanvasDataAdapter:
                 if d not in buckets:
                     buckets[d] = TimelineBucket(date=d, count=0, items=[])
                 buckets[d].count += 1
+                mem_id = node.id if node.id else f.stem
+                if not mem_id or len(mem_id) < 8:
+                    mem_id = f.stem  # fallback to filename stem
                 buckets[d].items.append({
-                    "id": node.id,
+                    "id": mem_id,
                     "title": self._title(node),
                     "tags": node.tags,
                     "emotional_tag": node.emotional_tag,
@@ -137,7 +145,7 @@ class CanvasDataAdapter:
             from umap import UMAP
             import numpy as np
 
-            rows = self.vector.db.open_table(f"memory_{memory_type}").to_lance().to_table().to_pylist()
+            rows = self.vector.db.open_table(f"memory_{memory_type}").to_arrow().to_pylist()
             if len(rows) < 2:
                 return ProjectionData(points=[])
 

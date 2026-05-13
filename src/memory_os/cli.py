@@ -22,28 +22,13 @@ async def cmd_init(args):
     config = {
         "llm": {
             "chat": {"provider": "anthropic", "model": "claude-sonnet-4-6", "api_key": "${ANTHROPIC_API_KEY}"},
-            "embedding": {"provider": "local", "model": "bge-m3", "base_url": "http://localhost:8080", "dimension": 1024},
         },
     }
     config_path = vault / "_meta" / "system-config.yaml"
     if not config_path.exists():
         config_path.write_text(yaml.dump(config, default_flow_style=False))
 
-    from memory_os.config.loader import embedding_config_hash
-    from memory_os.config.models import EmbeddingConfig
     from memory_os.vault.vector_client import VectorStore
-
-    embedding_raw = config["llm"]["embedding"]
-    embed_cfg = EmbeddingConfig(
-        provider=embedding_raw["provider"],
-        model=embedding_raw["model"],
-        base_url=embedding_raw.get("base_url"),
-        dimension=embedding_raw.get("dimension", 1024),
-    )
-    embed_hash = embedding_config_hash(embed_cfg)
-    hash_path = vault / "_meta" / "embedding-hash.txt"
-    hash_path.write_text(embed_hash)
-
     VectorStore(vault)
     print(f"Vault 已初始化: {vault}")
 
@@ -105,6 +90,25 @@ async def cmd_list(args):
     for item in result["items"]:
         print(f"  [{item['type']}] {item['id']} {item['title'][:60]}")
         print(f"    强度:{item['strength']:.0f} 重要:{item['importance']:.0f} 状态:{item['status']}")
+
+
+async def cmd_search_inject(args):
+    from memory_os.config.loader import load_config
+    from memory_os.llm.service import LLMService
+    from memory_os.memory.service import MemoryService
+    from memory_os.agents.retrieval import RetrievalAgent
+
+    vault = Path(args.vault)
+    config = load_config(vault)
+    memory = MemoryService(vault, config)
+    llm = LLMService(config, vault_path=vault)
+    agent = RetrievalAgent(memory, llm, vault)
+
+    ctx = await agent.search_and_inject(args.query, top_k=args.top_k)
+    if ctx:
+        print(ctx)
+    else:
+        print("未找到相关记忆。")
 
 
 async def cmd_similar(args):
@@ -233,6 +237,11 @@ def main():
     p_list.add_argument("--sort", choices=["created", "strength", "importance", "recent"], default="created")
     p_list.add_argument("--vault", default=str(Path.home() / "memory-vault"))
 
+    p_inject = sub.add_parser("search-inject", help="搜索记忆并拼接为可注入 LLM 的 Context 字符串")
+    p_inject.add_argument("query")
+    p_inject.add_argument("--top-k", "-k", type=int, default=5)
+    p_inject.add_argument("--vault", default=str(Path.home() / "memory-vault"))
+
     p_similar = sub.add_parser("similar", help="查找与指定记忆语义相似的记忆")
     p_similar.add_argument("memory_id")
     p_similar.add_argument("--top-k", "-k", type=int, default=5)
@@ -279,6 +288,8 @@ def main():
         asyncio.run(cmd_search(args))
     elif args.command == "list":
         asyncio.run(cmd_list(args))
+    elif args.command == "search-inject":
+        asyncio.run(cmd_search_inject(args))
     elif args.command == "similar":
         asyncio.run(cmd_similar(args))
     elif args.command == "review":

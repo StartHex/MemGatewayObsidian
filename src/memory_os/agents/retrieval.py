@@ -77,6 +77,8 @@ class RetrievalAgent:
             return SearchStrategy.EXACT
         if len(query) < 3:
             return SearchStrategy.KEYWORD
+        if not self.llm.has_embedding:
+            return SearchStrategy.KEYWORD
         return SearchStrategy.VECTOR
 
     async def _search_exact(self, memory_id: str) -> list[SearchResult]:
@@ -130,6 +132,8 @@ class RetrievalAgent:
         return all_results[:top_k]
 
     async def _search_vector(self, query: str, top_k: int, where: str | None) -> list[SearchResult]:
+        if not self.llm.has_embedding:
+            return await self._search_keyword(query, top_k, MemoryStatus.ACTIVE)
         try:
             q_vec = (await self.llm.embed([query]))[0]
         except Exception:
@@ -237,6 +241,9 @@ class RetrievalAgent:
             node = await self.memory.get(memory_id)
         except FileNotFoundError:
             logger.warning("search_by_id_not_found", memory_id=memory_id)
+            return []
+
+        if not self.llm.has_embedding:
             return []
 
         try:
@@ -357,6 +364,55 @@ class RetrievalAgent:
 
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:top_k]
+
+    async def search_and_inject(self, query: str, top_k: int = 5, min_score: float = 0.3) -> str:
+        """检索后加载每条记忆的完整 content，拼接成 Context 格式。
+
+        适合直接注入到下游 LLM 对话中作为记忆上下文。
+        min_score: 最低相关度阈值，低于此分数的结果被过滤。
+        """
+        results = await self.search(query, strategy=SearchStrategy.AUTO, top_k=top_k)
+        if not results:
+            return ""
+
+        results = [r for r in results if r.score >= min_score]
+        if not results:
+            return ""
+
+        parts = []
+        for i, r in enumerate(results, 1):
+            try:
+                node = await self.memory.get(r.memory_id)
+            except Exception:
+                continue
+            content = node.content.strip()
+            if len(content) > 600:
+                content = await self._condense(content, query)
+            parts.append(f"[记忆 {i}] {content}")
+
+        if not parts:
+            return ""
+        return "Context:\n" + "\n".join(parts)
+
+    async def _condense(self, content: str, query: str) -> str:
+        """LLM 精简长文本，保留与查询相关的关键信息。"""
+        try:
+            resp = await self.llm.chat(
+                await self._build_condense_request(content, query),
+                agent_name="consolidation",
+            )
+            return resp.content.strip()[:600]
+        except Exception:
+            return content[:600]
+
+    async def _build_condense_request(self, content: str, query: str):
+        from memory_os.llm.models import UnifiedChatRequest
+        return UnifiedChatRequest(
+            system="你是信息提炼助手。保留与查询相关的关键事实、结论和数据，删除冗余描述。输出纯文本，不超过 300 字。",
+            messages=[{"role": "user", "content": f"查询：{query}\n\n内容：{content[:2000]}\n\n请提炼关键信息："}],
+            temperature=0.1,
+            max_tokens=512,
+        )
 
     def _extract_snippet(self, content: str, query: str, window: int = 100) -> str:
         idx = content.lower().find(query.lower())

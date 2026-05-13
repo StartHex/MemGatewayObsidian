@@ -8,8 +8,8 @@ interface GraphNode {
 }
 
 interface GraphEdge {
-  from: string;
-  to: string;
+  source: string;
+  target: string;
 }
 
 export default function MemoryGraph() {
@@ -34,8 +34,8 @@ export default function MemoryGraph() {
           font: { size: 10, color: '#9ca3af' },
         }));
         const edges = (data.edges || []).map((e: GraphEdge) => ({
-          from: e.from,
-          to: e.to,
+          from: e.source,
+          to: e.target,
           color: { color: '#2d2e3a', opacity: 0.5 },
         }));
         setNodeCount(nodes.length);
