@@ -5,3 +5,7 @@ __pycache__/
 *.pyc
 .DS_Store
 .env
+demo-vault/
+webui-react/dist/
+webui-react/node_modules/
+webui-react/package-lock.json

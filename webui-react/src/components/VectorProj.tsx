@@ -37,7 +37,8 @@ export default function VectorProj() {
         }));
 
         if (containerRef.current && (data.points || []).length > 0) {
-          const echarts = (await import('echarts')).default;
+          const echartsLib = await import('echarts');
+          const echarts = (echartsLib as any).init ? echartsLib : (echartsLib as any).default;
           if (chartRef.current) chartRef.current.dispose();
           chartRef.current = echarts.init(containerRef.current, 'dark');
           chartRef.current.setOption({
