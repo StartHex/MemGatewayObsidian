@@ -254,7 +254,12 @@ def main():
     p_tui.add_argument("--vault", default=str(Path.home() / "memory-vault"))
     p_tui.add_argument("--backend", choices=["textual", "prompt"], default="textual")
 
-    p_web = sub.add_parser("web", help="启动 WebUI")
+    p_serve = sub.add_parser("serve", help="启动 API 服务 + Agent 调度器（后台常驻）")
+    p_serve.add_argument("--vault", default=str(Path.home() / "memory-vault"))
+    p_serve.add_argument("--port", type=int, default=9090)
+    p_serve.add_argument("--no-scheduler", action="store_true", help="不启动 Agent 定时调度")
+
+    p_web = sub.add_parser("web", help="启动 WebUI（仅 API，不含调度器）")
     p_web.add_argument("--vault", default=str(Path.home() / "memory-vault"))
     p_web.add_argument("--port", type=int, default=9090)
 
@@ -289,12 +294,38 @@ def main():
             from memory_os.tui.prompt_app import main as prompt_main
             sys.argv = ["tui", "--vault", args.vault]
             asyncio.run(prompt_main())
+    elif args.command == "serve":
+        import os
+        import uvicorn
+        os.environ["MEMORY_OS_VAULT"] = args.vault
+        from memory_os.api.routes import app
+        if not args.no_scheduler:
+            from memory_os.config.loader import load_config
+            from memory_os.llm.service import LLMService
+            from memory_os.memory.service import MemoryService
+            from memory_os.scheduler import AgentScheduler
+
+            vault_path = Path(args.vault)
+            config = load_config(vault_path)
+            memory = MemoryService(vault_path, config)
+            llm = LLMService(config, vault_path=vault_path)
+            scheduler = AgentScheduler(vault_path, config, memory, llm)
+            scheduler.setup_default_jobs()
+
+            import threading
+            def _run_scheduler():
+                asyncio.run(scheduler.start())
+            t = threading.Thread(target=_run_scheduler, daemon=True)
+            t.start()
+            print(f"Agent scheduler started (thread: {t.name})")
+        print(f"API server listening on http://0.0.0.0:{args.port}")
+        uvicorn.run(app, host="0.0.0.0", port=args.port)
     elif args.command == "web":
         import os
         os.environ["MEMORY_OS_VAULT"] = args.vault
         import uvicorn
         from memory_os.api.routes import app
-        uvicorn.run(app, host="127.0.0.1", port=args.port)
+        uvicorn.run(app, host="0.0.0.0", port=args.port)
     elif args.command == "mcp":
         import os
         os.environ["MEMORY_OS_VAULT"] = args.vault

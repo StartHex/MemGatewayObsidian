@@ -3,31 +3,55 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import Search from './pages/Search';
-import MemoryGraph from './components/MemoryGraph';
+import WorkingMemory from './pages/WorkingMemory';
+import Review from './pages/Review';
 import { HealthReport } from './pages/Health';
+import MemoryGraph from './components/MemoryGraph';
+import Heatmap from './components/Heatmap';
+import Timeline from './components/Timeline';
+import VectorProj from './components/VectorProj';
 import './index.css';
+
+function Sidebar() {
+  const linkClass = ({ isActive }: { isActive: boolean }) =>
+    `text-sm ${isActive ? 'active' : ''}`;
+
+  return (
+    <nav className="sidebar">
+      <div className="px-4 py-2 mb-4">
+        <span className="text-lg font-bold">Memory OS</span>
+        <div className="text-xs text-gray-500 mt-1">v0.1.0</div>
+      </div>
+      <NavLink to="/" end className={linkClass}>Dashboard</NavLink>
+      <NavLink to="/search" className={linkClass}>Search</NavLink>
+      <NavLink to="/wm" className={linkClass}>Working Memory</NavLink>
+      <NavLink to="/review" className={linkClass}>Review</NavLink>
+      <div className="mt-4 px-4 py-1 text-xs text-gray-600 uppercase">Canvas</div>
+      <NavLink to="/canvas/graph" className={linkClass}>Memory Graph</NavLink>
+      <NavLink to="/canvas/heatmap" className={linkClass}>Heatmap</NavLink>
+      <NavLink to="/canvas/timeline" className={linkClass}>Timeline</NavLink>
+      <NavLink to="/canvas/projection" className={linkClass}>Vector Projection</NavLink>
+      <div className="mt-4 px-4 py-1 text-xs text-gray-600 uppercase">System</div>
+      <NavLink to="/health" className={linkClass}>Health</NavLink>
+    </nav>
+  );
+}
 
 function App() {
   return (
     <BrowserRouter>
       <div className="flex h-screen">
-        <nav className="w-48 bg-gray-900 p-4 flex flex-col gap-2">
-          <NavLink to="/" className="text-sm hover:text-blue-400">Dashboard</NavLink>
-          <NavLink to="/search" className="text-sm hover:text-blue-400">Search</NavLink>
-          <NavLink to="/canvas/graph" className="text-sm hover:text-blue-400">Memory Graph</NavLink>
-          <NavLink to="/canvas/heatmap" className="text-sm hover:text-blue-400">Heatmap</NavLink>
-          <NavLink to="/canvas/timeline" className="text-sm hover:text-blue-400">Timeline</NavLink>
-          <NavLink to="/canvas/projection" className="text-sm hover:text-blue-400">Vector Proj</NavLink>
-          <NavLink to="/health" className="text-sm hover:text-blue-400">Health</NavLink>
-        </nav>
+        <Sidebar />
         <main className="flex-1 p-6 overflow-auto">
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/search" element={<Search />} />
+            <Route path="/wm" element={<WorkingMemory />} />
+            <Route path="/review" element={<Review />} />
             <Route path="/canvas/graph" element={<MemoryGraph />} />
-            <Route path="/canvas/heatmap" element={<div>Heatmap Canvas</div>} />
-            <Route path="/canvas/timeline" element={<div>Timeline Canvas</div>} />
-            <Route path="/canvas/projection" element={<div>Vector Projection Canvas</div>} />
+            <Route path="/canvas/heatmap" element={<Heatmap />} />
+            <Route path="/canvas/timeline" element={<Timeline />} />
+            <Route path="/canvas/projection" element={<VectorProj />} />
             <Route path="/health" element={<HealthReport />} />
           </Routes>
         </main>
