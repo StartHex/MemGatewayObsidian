@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import MemoryDetail from '../components/MemoryDetail';
 
 interface MemoryItem {
   id: string;
@@ -25,6 +26,7 @@ export default function Dashboard() {
   const [captureOutput, setCaptureOutput] = useState('');
   const [captureStatus, setCaptureStatus] = useState('');
   const [agentStatus, setAgentStatus] = useState('');
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const fetchStats = async () => {
     try {
@@ -173,7 +175,7 @@ export default function Dashboard() {
               <tr><td colSpan={5} className="text-center text-gray-500 py-4">No memories yet</td></tr>
             )}
             {recent.map(m => (
-              <tr key={m.id}>
+              <tr key={m.id} onClick={() => setDetailId(m.id)} style={{ cursor: 'pointer' }}>
                 <td className="font-mono text-xs">{m.id.slice(-16)}</td>
                 <td><span className="badge badge-active">{TYPE_LABELS[m.type] || m.type}</span></td>
                 <td>{m.title || m.id}</td>
@@ -188,6 +190,8 @@ export default function Dashboard() {
           </tbody>
         </table>
       </div>
+
+      {detailId && <MemoryDetail memoryId={detailId} onClose={() => setDetailId(null)} />}
     </div>
   );
 }

@@ -148,5 +148,3 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 /* Scrolling */
 .scrollable { overflow-y: auto; max-height: calc(100vh - 64px); }
 
-/* Canvas containers */
-.canvas-container { width: 100%; height: calc(100vh - 100px); }

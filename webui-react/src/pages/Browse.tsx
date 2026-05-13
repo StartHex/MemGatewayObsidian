@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import MemoryDetail from '../components/MemoryDetail';
 
 interface MemoryItem {
   id: string;
@@ -40,6 +41,7 @@ export default function Browse() {
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [page, setPage] = useState(0);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const PAGE_SIZE = 30;
 
   const fetchAll = async () => {
@@ -170,7 +172,9 @@ export default function Browse() {
             {pageItems.map(m => (
               <div
                 key={m.id}
+                onClick={() => setDetailId(m.id)}
                 className="flex items-start gap-3 py-2 border-b border-gray-800 last:border-0"
+                style={{ cursor: 'pointer' }}
               >
                 <span style={{
                   display: 'inline-block',
@@ -207,6 +211,8 @@ export default function Browse() {
           </div>
         )}
       </div>
+
+      {detailId && <MemoryDetail memoryId={detailId} onClose={() => setDetailId(null)} />}
     </div>
   );
 }

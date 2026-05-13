@@ -24,7 +24,6 @@ from memory_os.agents.forgetting import ForgettingAgent
 from memory_os.agents.meta_cognition import MetaCognitionAgent
 from memory_os.agents.retrieval import RetrievalAgent, SearchStrategy
 from memory_os.agents.sensory_gateway import SensoryGateway
-from memory_os.canvas.adapter import CanvasDataAdapter
 from memory_os.config.loader import load_config
 from memory_os.llm.service import LLMService
 from memory_os.memory.service import MemoryService
@@ -148,13 +147,30 @@ async def get_health():
 @app.get("/api/v1/system/stats")
 async def get_stats():
     vault_path, config, memory, llm = _get_services()
-    canvas = CanvasDataAdapter(vault_path)
-    heatmap = await canvas.heatmap_data()
-    active = sum(1 for c in heatmap.cells if c.status == "active")
-    fading = sum(1 for c in heatmap.cells if c.status == "fading")
+    from memory_os.vault.frontmatter import parse_memory
+
+    active = 0
+    fading = 0
+    total = 0
+    for mem_dir in ["_memory/semantic", "_memory/episodic", "_memory/procedural"]:
+        dir_path = vault_path / mem_dir
+        if not dir_path.exists():
+            continue
+        for f in await list_directory(dir_path, "*.md"):
+            try:
+                node = await parse_memory(f)
+                total += 1
+                if node.status.value == "active":
+                    active += 1
+                elif node.status.value == "fading":
+                    fading += 1
+            except Exception:
+                continue
+    # Also count inbox
     inbox_files = await list_directory(vault_path / "_inbox", "*.md")
+    total += len(inbox_files)
     return {
-        "active": active, "fading": fading, "total": len(heatmap.cells),
+        "active": active, "fading": fading, "total": total,
         "inbox_pending": len(inbox_files),
     }
 
@@ -388,40 +404,6 @@ async def validate_file(req: ValidateRequest):
     from memory_os.api.hot_cache import validate_md_file
     vault_path = _get_services()[0]
     return await validate_md_file(vault_path, req.file_path)
-
-
-# ── Canvas data ─────────────────────────────────────────────────
-
-@app.get("/api/v1/canvas/graph")
-async def get_canvas_graph(status: str | None = None):
-    vault_path = _get_services()[0]
-    canvas = CanvasDataAdapter(vault_path)
-    status_list = [status] if status else None
-    return await canvas.graph_data(status_list)
-
-
-@app.get("/api/v1/canvas/heatmap")
-async def get_canvas_heatmap():
-    vault_path = _get_services()[0]
-    canvas = CanvasDataAdapter(vault_path)
-    return await canvas.heatmap_data()
-
-
-@app.get("/api/v1/canvas/timeline")
-async def get_canvas_timeline(start: str | None = None, end: str | None = None):
-    vault_path = _get_services()[0]
-    canvas = CanvasDataAdapter(vault_path)
-    today = date.today()
-    s = date.fromisoformat(start) if start else today.replace(day=1)
-    e = date.fromisoformat(end) if end else today
-    return await canvas.timeline_data(s, e)
-
-
-@app.get("/api/v1/canvas/projection")
-async def get_canvas_projection(type: str = "semantic"):
-    vault_path = _get_services()[0]
-    canvas = CanvasDataAdapter(vault_path)
-    return await canvas.vector_projection(type)
 
 
 # ── Static file serving (WebUI production build) ───────────────
