@@ -181,7 +181,7 @@ class AgentScheduler:
         tick_seconds = 30
 
         while self._running:
-            now = datetime.now(timezone.utc)
+            now = datetime.now()  # local time for cron matching
             for name, cron_expr, callback in self._jobs:
                 try:
                     cron = Cron(cron_expr)

@@ -33,6 +33,8 @@ def main():
     hot = _api("GET", "/api/v1/system/hot")
     # Fetch system alerts
     alerts = _api("GET", "/api/v1/system/alerts")
+    # Fetch latest review
+    review = _api("GET", "/api/v1/system/review/latest")
 
     parts = ["[MEMORY OS CONTEXT]"]
 
@@ -41,7 +43,16 @@ def main():
         parts.append("\n## ⚠️ System Alerts")
         parts.append(alerts.get("content", "").strip())
 
-    # 2. Hot context
+    # 2. Latest review summary if available
+    if review and review.get("found"):
+        review_content = review.get("content", "")
+        # Extract first 10 lines as summary
+        lines = review_content.strip().split("\n")
+        summary_lines = [l for l in lines if l.strip() and not l.startswith(">")][:10]
+        parts.append(f"\n## 📝 最新复盘 ({review.get('date', 'unknown')})")
+        parts.append("\n".join(summary_lines))
+
+    # 3. Hot context
     if hot and hot.get("content"):
         parts.append(hot["content"])
     elif hot and hot.get("generated"):
